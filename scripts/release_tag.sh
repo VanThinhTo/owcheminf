@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CHECK_ONLY=0
+
+if [[ $# -eq 2 && "$1" == "--check-only" ]]; then
+  CHECK_ONLY=1
+  shift
+fi
+
 if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 <version>" >&2
+  echo "Usage: $0 [--check-only] <version>" >&2
   echo "Example: $0 0.2.1" >&2
+  echo "Example: $0 --check-only 0.2.1" >&2
   exit 1
 fi
 
@@ -41,6 +49,22 @@ fi
 if git rev-parse "${TAG}" >/dev/null 2>&1; then
   echo "Tag ${TAG} already exists locally." >&2
   exit 1
+fi
+
+if [[ "${CHECK_ONLY}" -eq 1 ]]; then
+  cat <<EOF
+
+Preflight OK for ${TAG}
+
+- git working tree is clean
+- pyproject.toml version matches ${VERSION}
+- CHANGELOG.md contains a ${VERSION} section
+- local tag ${TAG} does not exist yet
+
+You can now run:
+  $0 ${VERSION}
+EOF
+  exit 0
 fi
 
 echo "Creating annotated tag ${TAG} from $(git rev-parse --short HEAD)"

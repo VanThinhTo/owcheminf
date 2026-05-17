@@ -39,6 +39,12 @@ Optional cleanup after local build:
 owcheminf-clean-repo
 ```
 
+If you want a fast release preflight without creating a tag or pushing anything:
+
+```bash
+./scripts/release_tag.sh --check-only 0.2.1
+```
+
 ## GitHub Automation
 
 The repository includes two release-oriented workflows:
