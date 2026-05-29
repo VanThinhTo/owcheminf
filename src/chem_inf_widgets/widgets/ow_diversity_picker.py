@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from AnyQt.QtCore import Qt
 from AnyQt.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
