@@ -1,4 +1,5 @@
 <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <rect x="6" y="6" width="88" height="88" rx="20" fill="#bbf7d0"/>
   <path d="M34 28L50 20L66 28V46L50 54L34 46Z" fill="none" stroke="#111" stroke-width="4" stroke-linejoin="round"/>
   <path d="M50 54V70" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
   <path d="M34 46L24 56" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
@@ -11,5 +12,5 @@
   <path d="M40 82L49 80L44 72" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M76 66C70 74 61 79 51 80" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round"/>
   <path d="M56 72L51 80L60 82" fill="none" stroke="#111" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="50" cy="70" r="6" fill="#fff" stroke="#111" stroke-width="4"/>
+  <circle cx="50" cy="70" r="6" fill="#22c55e" stroke="#111" stroke-width="4"/>
 </svg>

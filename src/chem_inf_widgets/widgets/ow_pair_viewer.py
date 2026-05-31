@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import List, Optional
 
 import numpy as np
@@ -30,6 +31,45 @@ from chem_inf_widgets.widgets.ui_helpers import (
 )
 
 
+_CLASSIC_PAIR_LEFT_CANDIDATES = [
+    "smiles_a",
+]
+_CLASSIC_PAIR_RIGHT_CANDIDATES = [
+    "smiles_b",
+]
+_TRANSFORMATION_INPUT_CANDIDATES = [
+    "smiles_orig",
+    "standardization_input_smiles",
+    "std_input_smiles",
+    "input_smiles",
+    "raw_smiles",
+    "canonical_smiles",
+    "smiles",
+]
+_STANDARDIZATION_OUTPUT_CANDIDATES = [
+    "smiles_std",
+    "canonical_smiles_std",
+    "standardized_smiles",
+    "standardization_output_smiles",
+    "std_output_smiles",
+]
+_TRANSFORMATION_OUTPUT_CANDIDATES = [
+    *_STANDARDIZATION_OUTPUT_CANDIDATES,
+    "canonical_smiles",
+    "smiles",
+]
+_STANDARDIZATION_NAME_CANDIDATES = [
+    "name",
+    "compound_name",
+    "compound_id",
+    "molecule_id",
+    "id",
+    "identifier",
+    "title",
+    "row_id",
+]
+
+
 def _string_vars(data: Table) -> List[StringVariable]:
     variables = list(data.domain.metas) + list(data.domain.attributes) + list(data.domain.class_vars)
     return [var for var in variables if isinstance(var, StringVariable)]
@@ -40,11 +80,129 @@ def _continuous_vars(data: Table) -> List[ContinuousVariable]:
     return [var for var in variables if isinstance(var, ContinuousVariable)]
 
 
-def _find_var_name(data: Table, candidates: List[str], *, string_only: bool = True) -> str:
+def _normalize_var_name(name: str) -> str:
+    text = str(name or "").strip().lower()
+    text = re.sub(r"[\s\-/]+", "_", text)
+    text = re.sub(r"_+", "_", text)
+    return text
+
+
+def _base_var_name(name: str) -> str:
+    return re.sub(r"_\d+$", "", _normalize_var_name(name))
+
+
+def _candidate_keys(candidates: List[str]) -> set[str]:
+    return {_base_var_name(name) for name in candidates}
+
+
+def _find_var_name(
+    data: Table,
+    candidates: List[str],
+    *,
+    string_only: bool = True,
+    exclude: Optional[set[str]] = None,
+) -> str:
     variables = _string_vars(data) if string_only else _continuous_vars(data)
-    normalized = {name.strip().lower() for name in candidates}
-    match = next((var.name for var in variables if var.name.strip().lower() in normalized), "")
+    normalized = _candidate_keys(candidates)
+    excluded = {_base_var_name(name) for name in (exclude or set())}
+    match = next(
+        (
+            var.name
+            for var in variables
+            if _base_var_name(var.name) in normalized
+            and _base_var_name(var.name) not in excluded
+        ),
+        "",
+    )
     return match
+
+
+def _is_smiles_like_var(var: StringVariable) -> bool:
+    base_name = _base_var_name(var.name)
+    if "smiles" in base_name or base_name == "smile":
+        return True
+    return str(var.attributes.get("format", "") or "").strip().upper() == "SMILES"
+
+
+def _smiles_like_names(data: Optional[Table]) -> list[str]:
+    if data is None:
+        return []
+    return [var.name for var in _string_vars(data) if _is_smiles_like_var(var)]
+
+
+def _find_pair_by_candidates(
+    data: Optional[Table],
+    left_candidates: List[str],
+    right_candidates: List[str],
+) -> tuple[str, str]:
+    if data is None:
+        return "", ""
+    left = _find_var_name(data, left_candidates)
+    right = _find_var_name(data, right_candidates, exclude={left} if left else None)
+    if left and right:
+        return left, right
+    return "", ""
+
+
+def _detect_smiles_pair(data: Optional[Table]) -> tuple[str, str]:
+    if data is None:
+        return "", ""
+
+    candidates = [
+        (_CLASSIC_PAIR_LEFT_CANDIDATES, _CLASSIC_PAIR_RIGHT_CANDIDATES),
+        (_TRANSFORMATION_INPUT_CANDIDATES[:-1], _STANDARDIZATION_OUTPUT_CANDIDATES),
+        (_TRANSFORMATION_INPUT_CANDIDATES, _STANDARDIZATION_OUTPUT_CANDIDATES),
+        (_TRANSFORMATION_INPUT_CANDIDATES[:-1], _TRANSFORMATION_OUTPUT_CANDIDATES),
+        (_TRANSFORMATION_INPUT_CANDIDATES, _TRANSFORMATION_OUTPUT_CANDIDATES),
+    ]
+    for left_candidates, right_candidates in candidates:
+        left, right = _find_pair_by_candidates(data, left_candidates, right_candidates)
+        if left and right:
+            return left, right
+
+    smiles_like = _smiles_like_names(data)
+    if len(smiles_like) >= 2:
+        return smiles_like[0], smiles_like[1]
+    return "", ""
+
+
+def _comparison_mode(smiles_a_var: str, smiles_b_var: str) -> str:
+    left = _base_var_name(smiles_a_var)
+    right = _base_var_name(smiles_b_var)
+    if left in _candidate_keys(_CLASSIC_PAIR_LEFT_CANDIDATES) and right in _candidate_keys(_CLASSIC_PAIR_RIGHT_CANDIDATES):
+        return "classic"
+    if right in _candidate_keys(_STANDARDIZATION_OUTPUT_CANDIDATES):
+        return "standardization"
+    if left in _candidate_keys(_TRANSFORMATION_INPUT_CANDIDATES) or right in _candidate_keys(_TRANSFORMATION_OUTPUT_CANDIDATES):
+        return "transformation"
+    if left and right and ("smiles" in left or "smiles" in right):
+        return "transformation"
+    return ""
+
+
+def _single_name_var(data: Optional[Table]) -> str:
+    if data is None:
+        return ""
+    name_var = _find_var_name(data, _STANDARDIZATION_NAME_CANDIDATES)
+    if name_var:
+        return name_var
+    smiles_like = set(_smiles_like_names(data))
+    for var in _string_vars(data):
+        if var.name not in smiles_like:
+            return var.name
+    return ""
+
+
+def _detect_name_pair(data: Optional[Table], smiles_a_var: str, smiles_b_var: str) -> tuple[str, str]:
+    if data is None:
+        return "", ""
+    if _comparison_mode(smiles_a_var, smiles_b_var) != "classic":
+        name_var = _single_name_var(data)
+        return name_var, name_var
+    return (
+        _find_var_name(data, ["name_a", "name a"]),
+        _find_var_name(data, ["name_b", "name b"]),
+    )
 
 
 def _row_text(row, var_name: str) -> str:
@@ -75,7 +233,11 @@ def _mol_pixmap(smiles: str, size: int = 320) -> Optional[QPixmap]:
     mol = safe_mol_from_smiles(clean, sanitize=True, remove_hs=True).mol
     if mol is None:
         return None
-    png = mol_depict.render_mol_png(mol, size=size)
+    png = mol_depict.render_mol_png(
+        mol,
+        size=size,
+        suppress_isolated_metal_radicals=True,
+    )
     pixmap = QPixmap()
     pixmap.loadFromData(png)
     return pixmap
@@ -84,6 +246,8 @@ def _mol_pixmap(smiles: str, size: int = 320) -> Optional[QPixmap]:
 def _pair_compounds_table(
     row,
     *,
+    role_a: str,
+    role_b: str,
     name_a_var: str,
     name_b_var: str,
     smiles_a_var: str,
@@ -122,8 +286,8 @@ def _pair_compounds_table(
     )
     metas = np.array(
         [
-            ["A", _row_text(row, name_a_var), _row_text(row, smiles_a_var), higher_active],
-            ["B", _row_text(row, name_b_var), _row_text(row, smiles_b_var), higher_active],
+            [role_a, _row_text(row, name_a_var), _row_text(row, smiles_a_var), higher_active],
+            [role_b, _row_text(row, name_b_var), _row_text(row, smiles_b_var), higher_active],
         ],
         dtype=object,
     )
@@ -162,10 +326,14 @@ class _MolPanel(QFrame):
         self.activity_label = QLabel("")
         layout.addWidget(self.activity_label)
 
+    def set_title(self, title: str) -> None:
+        self.title_label.setText(title)
+
     def set_content(self, *, name: str, smiles: str, activity: str, pixmap: Optional[QPixmap]) -> None:
         self.name_label.setText(f"Name: {name or '—'}")
         self.smiles_label.setText(f"SMILES: {smiles or '—'}")
-        self.activity_label.setText(f"Activity: {activity or '—'}")
+        self.activity_label.setText(f"Activity: {activity}" if activity else "")
+        self.activity_label.setVisible(bool(activity))
         if pixmap is None:
             self.image_label.setText("No structure")
             self.image_label.setPixmap(QPixmap())
@@ -276,11 +444,13 @@ class OWPairViewer(OWWidget):
             combo.addItems(string_names)
             combo.blockSignals(False)
 
+        default_smiles_a, default_smiles_b = _detect_smiles_pair(self.data)
+        default_name_a, default_name_b = _detect_name_pair(self.data, default_smiles_a, default_smiles_b)
         defaults = {
-            "smiles_a_var_name": _find_var_name(self.data, ["smiles a", "smiles_a", "smilesa"]) if self.data is not None else "",
-            "smiles_b_var_name": _find_var_name(self.data, ["smiles b", "smiles_b", "smilesb"]) if self.data is not None else "",
-            "name_a_var_name": _find_var_name(self.data, ["name a", "name_a"]) if self.data is not None else "",
-            "name_b_var_name": _find_var_name(self.data, ["name b", "name_b"]) if self.data is not None else "",
+            "smiles_a_var_name": default_smiles_a,
+            "smiles_b_var_name": default_smiles_b,
+            "name_a_var_name": default_name_a,
+            "name_b_var_name": default_name_b,
         }
 
         for attr_name, combo in (
@@ -295,17 +465,29 @@ class OWPairViewer(OWWidget):
                 setattr(self, attr_name, value)
             combo.setCurrentText(value)
 
+        if self.data is None:
+            self.activity_a_var_name = ""
+            self.activity_b_var_name = ""
+            self.similarity_var_name = ""
+            self.ratio_var_name = ""
+            self.cliff_score_var_name = ""
+            self.higher_active_var_name = ""
+            self._update_panel_titles()
+            return
+
         self.activity_a_var_name = self.activity_a_var_name if self.activity_a_var_name in continuous_names else _find_var_name(self.data, ["activity a", "activity_a"], string_only=False)
         self.activity_b_var_name = self.activity_b_var_name if self.activity_b_var_name in continuous_names else _find_var_name(self.data, ["activity b", "activity_b"], string_only=False)
         self.similarity_var_name = self.similarity_var_name if self.similarity_var_name in continuous_names else _find_var_name(self.data, ["similarity"], string_only=False)
         self.ratio_var_name = self.ratio_var_name if self.ratio_var_name in continuous_names else _find_var_name(self.data, ["activity ratio", "activity_ratio"], string_only=False)
         self.cliff_score_var_name = self.cliff_score_var_name if self.cliff_score_var_name in continuous_names else _find_var_name(self.data, ["cliff score", "cliff_score"], string_only=False)
         self.higher_active_var_name = self.higher_active_var_name if self.higher_active_var_name in string_names else _find_var_name(self.data, ["higher active", "higher_active"])
+        self._update_panel_titles()
 
     def _refresh_rows(self) -> None:
         self.pair_list.clear()
         self.panel_a.set_content(name="", smiles="", activity="", pixmap=None)
         self.panel_b.set_content(name="", smiles="", activity="", pixmap=None)
+        self._update_panel_titles()
 
         if self.data is None or len(self.data) == 0:
             self.status_label.setText(format_waiting_status("pair table"))
@@ -320,7 +502,10 @@ class OWPairViewer(OWWidget):
             similarity = _row_float(row, self.similarity_var_name)
             label_a = _row_text(row, self.name_a_var_name) or _row_text(row, self.smiles_a_var_name)[:28]
             label_b = _row_text(row, self.name_b_var_name) or _row_text(row, self.smiles_b_var_name)[:28]
-            text = f"{index + 1}. {label_a} vs {label_b}"
+            if _comparison_mode(self.smiles_a_var_name, self.smiles_b_var_name) != "classic":
+                text = f"{index + 1}. {label_a or label_b or 'Structure comparison'}"
+            else:
+                text = f"{index + 1}. {label_a} vs {label_b}"
             if np.isfinite(score):
                 text += f" | cliff={score:.3f}"
             if np.isfinite(similarity):
@@ -340,6 +525,7 @@ class OWPairViewer(OWWidget):
         self.smiles_b_var_name = self.smiles_b_combo.currentText()
         self.name_a_var_name = self.name_a_combo.currentText()
         self.name_b_var_name = self.name_b_combo.currentText()
+        self._update_panel_titles()
         self._refresh_rows()
         self._send_outputs()
 
@@ -365,6 +551,18 @@ class OWPairViewer(OWWidget):
         self.panel_a.set_content(name=name_a, smiles=smiles_a, activity=activity_a, pixmap=_mol_pixmap(smiles_a))
         self.panel_b.set_content(name=name_b, smiles=smiles_b, activity=activity_b, pixmap=_mol_pixmap(smiles_b))
 
+    def _update_panel_titles(self) -> None:
+        mode = _comparison_mode(self.smiles_a_var_name, self.smiles_b_var_name)
+        if mode == "standardization":
+            self.panel_a.set_title("Original Structure")
+            self.panel_b.set_title("Standardized Structure")
+        elif mode == "transformation":
+            self.panel_a.set_title("Input Structure")
+            self.panel_b.set_title("Output Structure")
+        else:
+            self.panel_a.set_title("Compound A")
+            self.panel_b.set_title("Compound B")
+
     def _send_outputs(self) -> None:
         if self.data is None or self._selected_index is None or self._selected_index >= len(self.data):
             self.Outputs.selected_pairs.send(None)
@@ -373,9 +571,18 @@ class OWPairViewer(OWWidget):
 
         selected = self.data[self._selected_index : self._selected_index + 1]
         self.Outputs.selected_pairs.send(selected)
+        mode = _comparison_mode(self.smiles_a_var_name, self.smiles_b_var_name)
+        if mode == "standardization":
+            role_a, role_b = "Original", "Standardized"
+        elif mode == "transformation":
+            role_a, role_b = "Input", "Output"
+        else:
+            role_a, role_b = "A", "B"
         self.Outputs.pair_compounds.send(
             _pair_compounds_table(
                 self.data[self._selected_index],
+                role_a=role_a,
+                role_b=role_b,
                 name_a_var=self.name_a_var_name,
                 name_b_var=self.name_b_var_name,
                 smiles_a_var=self.smiles_a_var_name,

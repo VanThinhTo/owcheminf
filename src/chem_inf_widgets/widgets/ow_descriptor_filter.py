@@ -182,7 +182,7 @@ class OWDescriptorFilter(OWWidget):
 
     class Outputs:
         filtered_data = Output("Filtered Data", Table)
-        modeling_data = Output("Modeling Data", Table)
+        modeling_data = Output("Modeling Data", Table, default=True)
         report       = Output("Filter Report", Table)
 
     max_missing_fraction: float = Setting(0.20)

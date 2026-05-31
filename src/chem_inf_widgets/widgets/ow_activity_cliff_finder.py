@@ -148,7 +148,7 @@ class OWActivityCliffFinder(OWWidget):
         data = Input("Data", Table)
 
     class Outputs:
-        cliff_pairs = Output("Cliff Pairs", Table)
+        cliff_pairs = Output("Cliff Pairs", Table, default=True)
         cliff_compounds = Output("Cliff Compounds", Table)
         scaffold_summary = Output("Scaffold Summary", Table)
 

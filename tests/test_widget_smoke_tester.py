@@ -59,6 +59,9 @@ def test_widget_package_discovery_registers_without_duplicate_widgets():
     assert registry.has_widget(
         "chem_inf_widgets.widgets.ow_mol_standardizer.OWMolStandardizer"
     )
+    assert registry.has_widget(
+        "chem_inf_widgets.widgets.ow_symbolic_regression.OWSymbolicRegression"
+    )
 
 
 def test_widget_smoke_runner_imports_and_instantiates_core_subset():

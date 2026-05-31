@@ -12,6 +12,15 @@ from chem_inf_widgets.chemcore.mol import ChemMol
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
 
 
+_DISPLAY_ONLY_METAL_ATOMIC_NUMBERS = {
+    3, 4, 11, 12, 13, 19, 20, 21, 22, 23, 24, 25, 26,
+    27, 28, 29, 30, 31, 37, 38, 39, 40, 41, 42, 43, 44,
+    45, 46, 47, 48, 49, 50, 55, 56, 57, 58, 59, 60, 62,
+    63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75,
+    76, 77, 78, 79, 80, 81, 82, 83,
+}
+
+
 # =========================
 # Data container
 # =========================
@@ -169,12 +178,45 @@ def chemmols_to_items(
 # Rendering
 # =========================
 
+def _is_isolated_metal_radical_cation(atom: Chem.Atom) -> bool:
+    return (
+        atom.GetAtomicNum() in _DISPLAY_ONLY_METAL_ATOMIC_NUMBERS
+        and atom.GetFormalCharge() > 0
+        and atom.GetNumRadicalElectrons() > 0
+        and atom.GetDegree() == 0
+    )
+
+
+def prepare_mol_for_rendering(
+    mol: Chem.Mol,
+    *,
+    remove_hs_for_drawing: bool = True,
+    suppress_isolated_metal_radicals: bool = False,
+) -> Chem.Mol:
+    """Return a display-only copy of a molecule prepared for depiction."""
+    m = Chem.Mol(mol)
+    if remove_hs_for_drawing:
+        try:
+            m = Chem.RemoveHs(m)
+        except Exception:
+            pass
+
+    if suppress_isolated_metal_radicals:
+        for atom in m.GetAtoms():
+            if _is_isolated_metal_radical_cation(atom):
+                # RDKit depicts species like [Fe+] as radical cations. For Pair Viewer
+                # comparisons we suppress that dot only for disconnected metal cations.
+                atom.SetNumRadicalElectrons(0)
+    return m
+
+
 def render_mol_png(
     mol: Chem.Mol,
     size: int = 240,
     highlight_atoms: Optional[list[int]] = None,
     remove_hs_for_drawing: bool = True,
     use_rdcoordgen: bool = True,
+    suppress_isolated_metal_radicals: bool = False,
 ) -> bytes:
     """
     Render molecule to PNG bytes.
@@ -185,12 +227,11 @@ def render_mol_png(
     if mol is None:
         return b""
 
-    m = mol
-    if remove_hs_for_drawing:
-        try:
-            m = Chem.RemoveHs(m)
-        except Exception:
-            m = mol
+    m = prepare_mol_for_rendering(
+        mol,
+        remove_hs_for_drawing=remove_hs_for_drawing,
+        suppress_isolated_metal_radicals=suppress_isolated_metal_radicals,
+    )
 
     try:
         if use_rdcoordgen:

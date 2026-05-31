@@ -99,7 +99,7 @@ class OWMolStandardizer(OWWidget):
 
     class Outputs:
         modeling_data = Output("Modeling Data", Table)
-        data = Output("Data", Table)
+        data = Output("Data", Table, default=True)
         molecules = Output("Molecules", list, auto_summary=False)
         qsar_ready_data = Output("QSAR-ready Data", Table)
         qsar_ready_molecules = Output("QSAR-ready Molecules", list, auto_summary=False)

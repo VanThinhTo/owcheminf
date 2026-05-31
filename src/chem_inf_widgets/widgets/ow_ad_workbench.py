@@ -62,11 +62,11 @@ class OWADWorkbench(OWWidget):
     keywords = ["QSAR", "applicability domain", "AD", "Williams", "kNN", "Mahalanobis"]
 
     class Inputs:
-        data = Input("Query Data", Table)
+        data = Input("Query Data", Table, default=True)
         reference_data = Input("Reference Data", Table)
 
     class Outputs:
-        data_results = Output("AD Results", Table)
+        data_results = Output("AD Results", Table, default=True)
         reference_results = Output("Reference Results", Table)
         out_of_domain = Output("Out-of-Domain Records", Table)
         summary = Output("AD Summary", Table)

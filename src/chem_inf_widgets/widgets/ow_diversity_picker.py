@@ -78,7 +78,7 @@ class OWDiversityPicker(OWWidget):
         molecules = Input("Molecules", list, auto_summary=False)
 
     class Outputs:
-        selected_data = Output("Selected Data", Table)
+        selected_data = Output("Selected Data", Table, default=True)
         remainder_data = Output("Remainder Data", Table)
         selected_molecules = Output("Selected Molecules", list, auto_summary=False)
         remainder_molecules = Output("Remainder Molecules", list, auto_summary=False)

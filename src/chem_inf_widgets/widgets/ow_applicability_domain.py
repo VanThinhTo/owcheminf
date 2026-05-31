@@ -130,11 +130,11 @@ class OWApplicabilityDomain(OWWidget):
     priority = 136
 
     class Inputs:
-        data = Input("Data", Table)
+        data = Input("Data", Table, default=True)
         reference_data = Input("Reference Data", Table)
 
     class Outputs:
-        data_results = Output("Data Results", Table)
+        data_results = Output("Data Results", Table, default=True)
         reference_results = Output("Reference Results", Table)
         summary = Output("AD Summary", Table)
 

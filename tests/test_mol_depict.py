@@ -13,7 +13,12 @@ if str(SRC_ROOT) not in sys.path:
 
 
 from chem_inf_widgets.chemcore.mol import ChemMol  # noqa: E402
-from chem_inf_widgets.chemcore.services.mol_depict import chemmols_to_items, table_to_items  # noqa: E402
+from chem_inf_widgets.chemcore.services.mol_depict import (  # noqa: E402
+    chemmols_to_items,
+    prepare_mol_for_rendering,
+    table_to_items,
+)
+from rdkit import Chem  # noqa: E402
 
 
 class MolDepictTests(unittest.TestCase):
@@ -44,6 +49,32 @@ class MolDepictTests(unittest.TestCase):
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0].title, "ethanol")
+
+    def test_prepare_mol_for_rendering_suppresses_isolated_metal_radicals_only_on_copy(self):
+        mol = Chem.MolFromSmiles("CC[O-].[Fe+]")
+        self.assertIsNotNone(mol)
+        iron = next(atom for atom in mol.GetAtoms() if atom.GetSymbol() == "Fe")
+        self.assertEqual(iron.GetNumRadicalElectrons(), 1)
+
+        display = prepare_mol_for_rendering(
+            mol,
+            suppress_isolated_metal_radicals=True,
+        )
+        display_iron = next(atom for atom in display.GetAtoms() if atom.GetSymbol() == "Fe")
+
+        self.assertEqual(display_iron.GetNumRadicalElectrons(), 0)
+        self.assertEqual(iron.GetNumRadicalElectrons(), 1)
+
+    def test_prepare_mol_for_rendering_keeps_non_metal_radicals_visible(self):
+        mol = Chem.MolFromSmiles("[CH2]C")
+        self.assertIsNotNone(mol)
+        display = prepare_mol_for_rendering(
+            mol,
+            suppress_isolated_metal_radicals=True,
+        )
+
+        radicals = [atom.GetNumRadicalElectrons() for atom in display.GetAtoms()]
+        self.assertIn(1, radicals)
 
 
 if __name__ == "__main__":

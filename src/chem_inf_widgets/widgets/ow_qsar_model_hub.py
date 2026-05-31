@@ -167,7 +167,7 @@ class OWQSARModelHub(OWWidget):
 
     class Outputs:
         model = Output("Model", object, auto_summary=False)
-        predictions = Output("Predictions", Table)
+        predictions = Output("Predictions", Table, default=True)
         metrics = Output("Metrics", Table)
         model_summary = Output("Model Summary", Table)
         selected_compounds = Output("Selected Compounds", Table)

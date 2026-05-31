@@ -53,7 +53,7 @@ class OWReactionEnumerator(OWWidget):
         reactions = Input("Reactions", Table)
 
     class Outputs:
-        products = Output("Products", Table)
+        products = Output("Products", Table, default=True)
         summary = Output("Enumeration Summary", Table)
 
     max_products: int = Setting(500)

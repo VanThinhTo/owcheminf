@@ -49,7 +49,7 @@ class OWScaffoldSplitter(OWWidget):
         data = Input("Data", Table)
 
     class Outputs:
-        train_data = Output("Train Data", Table)
+        train_data = Output("Train Data", Table, default=True)
         validation_data = Output("Validation Data", Table)
         test_data = Output("Test Data", Table)
         summary = Output("Split Summary", Table)

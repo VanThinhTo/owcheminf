@@ -132,6 +132,7 @@ _CATEGORY_SPECS = (
             "ow_atom_contribution_map",
             "ow_qsar_regression",
             "ow_mlr_model_selection",
+            "ow_symbolic_regression",
         ),
     },
 )

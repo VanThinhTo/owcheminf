@@ -178,7 +178,7 @@ class OWQSARDatasetBuilder(OWWidget):
         data = Input("Data", Table)
 
     class Outputs:
-        qsar_ready_data  = Output("QSAR Ready Data",   Table)
+        qsar_ready_data  = Output("QSAR Ready Data",   Table, default=True)
         rejected_records = Output("Rejected Records",  Table)
         curation_report  = Output("Curation Report",   Table)
         dataset_summary  = Output("Dataset Summary",   Table)

@@ -1,10 +1,11 @@
 <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="24" cy="34" r="6" fill="#fff" stroke="#111" stroke-width="3"/>
-  <circle cx="48" cy="24" r="6" fill="#fff" stroke="#111" stroke-width="3"/>
-  <circle cx="74" cy="34" r="6" fill="#fff" stroke="#111" stroke-width="3"/>
-  <circle cx="32" cy="60" r="6" fill="#fff" stroke="#111" stroke-width="3"/>
-  <circle cx="56" cy="54" r="6" fill="#fff" stroke="#111" stroke-width="3"/>
-  <circle cx="76" cy="68" r="6" fill="#fff" stroke="#111" stroke-width="3"/>
+  <rect x="6" y="6" width="88" height="88" rx="20" fill="#dbeafe"/>
+  <circle cx="24" cy="34" r="6" fill="#2563eb" stroke="#111" stroke-width="3"/>
+  <circle cx="48" cy="24" r="6" fill="#0ea5e9" stroke="#111" stroke-width="3"/>
+  <circle cx="74" cy="34" r="6" fill="#f97316" stroke="#111" stroke-width="3"/>
+  <circle cx="32" cy="60" r="6" fill="#22c55e" stroke="#111" stroke-width="3"/>
+  <circle cx="56" cy="54" r="6" fill="#f59e0b" stroke="#111" stroke-width="3"/>
+  <circle cx="76" cy="68" r="6" fill="#ef4444" stroke="#111" stroke-width="3"/>
   <circle cx="24" cy="34" r="11" fill="none" stroke="#111" stroke-width="2"/>
   <circle cx="56" cy="54" r="11" fill="none" stroke="#111" stroke-width="2"/>
   <circle cx="76" cy="68" r="11" fill="none" stroke="#111" stroke-width="2"/>

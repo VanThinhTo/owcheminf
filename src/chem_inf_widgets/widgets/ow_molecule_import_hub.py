@@ -33,7 +33,7 @@ class OWMoleculeImportHub(OWWidget):
     priority = 100
 
     class Outputs:
-        data = Output("Data", Table)
+        data = Output("Data", Table, default=True)
         molecules = Output("Molecules", list, auto_summary=False)
         accepted_data = Output("Accepted Data", Table)
         accepted_molecules = Output("Accepted Molecules", list, auto_summary=False)

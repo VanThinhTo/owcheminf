@@ -82,6 +82,7 @@ experimental, diagnostic, overlapping, specialized, or optional-dependency-heavy
 - Atom Contribution Map
 - QSAR Regression
 - MLR Model Selection
+- Symbolic Regression
 
 ## Suggested future public widgets
 

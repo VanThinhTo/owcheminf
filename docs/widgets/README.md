@@ -62,6 +62,7 @@ Current widget notes and diagnostic entry points:
 - [qsar_prediction_packager.md](qsar_prediction_packager.md)
 - [qsar_regression.md](qsar_regression.md)
 - [mlr_model_selection.md](mlr_model_selection.md)
+- [symbolic_regression.md](symbolic_regression.md)
 
 ### Reactions
 

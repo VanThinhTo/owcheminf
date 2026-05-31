@@ -155,7 +155,7 @@ class OWQSARPredictionPackager(OWWidget):
         molecules = Input("Molecules", list, auto_summary=False)
 
     class Outputs:
-        predictions     = Output("Predictions", Table)
+        predictions     = Output("Predictions", Table, default=True)
         feature_report  = Output("Feature Report", Table)
         package_manifest = Output("Package Manifest", Table)
         failed_records  = Output("Failed Records", Table)

@@ -53,7 +53,7 @@ class OWMatchedMolecularPairs(OWWidget):
         data = Input("Data", Table)
 
     class Outputs:
-        pair_table = Output("Pair Table", Table)
+        pair_table = Output("Pair Table", Table, default=True)
         pair_compounds = Output("Pair Compounds", Table)
 
     smiles_var_name: str = Setting("")

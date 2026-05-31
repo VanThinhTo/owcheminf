@@ -143,6 +143,7 @@ orange-canvas
 - `QSAR Prediction Packager`
 - `QSAR Regression`
 - `MLR Model Selection`
+- `Symbolic Regression`
 
 ### Reactions
 

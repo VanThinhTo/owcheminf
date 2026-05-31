@@ -118,7 +118,7 @@ class OWAuditTrailViewer(OWWidget):
         data = Input("Data", Table)
 
     class Outputs:
-        filtered_data = Output("Filtered Data", Table)
+        filtered_data = Output("Filtered Data", Table, default=True)
         flagged_data = Output("Flagged Data", Table)
         dropped_data = Output("Dropped Data", Table)
         audit_summary = Output("Audit Summary", Table)

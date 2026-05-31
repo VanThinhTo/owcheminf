@@ -41,7 +41,7 @@ class OWMoleculeQCDashboard(OWWidget):
     class Outputs:
         modeling_data = Output("Modeling Data", Table)
         annotated_data = Output("QC Annotated Data", Table)
-        clean_data = Output("Clean Data", Table)
+        clean_data = Output("Clean Data", Table, default=True)
         problem_data = Output("Problem Data", Table)
         rejected_data = Output("Rejected Data", Table)
         qc_report = Output("QC Report", Table)

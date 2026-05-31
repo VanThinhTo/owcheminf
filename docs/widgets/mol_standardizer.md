@@ -53,6 +53,13 @@ The exact set depends on the widget implementation, but standardization workflow
 3. `Drug Filter`
 4. `Scaffold Analysis`
 
+### Visual comparison of changes
+
+1. `SDF Reader` or `File`
+2. `Mol Standardizer`
+3. `Pair Viewer`
+4. Compare original structure on the left with standardized output on the right
+
 ### QSAR preparation
 
 1. `Mol Standardizer`

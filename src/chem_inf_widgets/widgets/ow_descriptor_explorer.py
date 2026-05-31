@@ -104,7 +104,7 @@ class OWDescriptorExplorer(OWWidget):
         data = Input("Data", Table)
 
     class Outputs:
-        filtered_data = Output("Filtered Data", Table)
+        filtered_data = Output("Filtered Data", Table, default=True)
         descriptor_summary = Output("Descriptor Summary", Table)
         category_summary = Output("Category Summary", Table)
         correlation_pairs = Output("Correlation Pairs", Table)

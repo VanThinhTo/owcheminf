@@ -104,7 +104,7 @@ class OWChemBLBrowser(OWWidget):
     priority = 104
 
     class Outputs:
-        data = Output("Data", Table)
+        data = Output("Data", Table, default=True)
         molecules = Output("Molecules", list, auto_summary=False)
         selected_data = Output("Selected Data", Table)
         selected_molecules = Output("Selected Molecules", list, auto_summary=False)
