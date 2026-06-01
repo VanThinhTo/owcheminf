@@ -1,3 +1,5 @@
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 from contextlib import ExitStack
@@ -18,6 +20,7 @@ from chem_inf_widgets.chemcore.services.molecule_import_service import (
     MoleculeImportSummary,
 )
 from chem_inf_widgets.widgets import ow_molecule_import_hub as import_widget_module
+from chem_inf_widgets.widgets.utils import summarize_service_issues
 from chem_inf_widgets.widgets.ow_molecule_import_hub import OWMoleculeImportHub
 
 
@@ -98,7 +101,13 @@ def test_molecule_import_hub_surfaces_backend_service_warnings():
         for output_patch in _patch_output_sends(widget):
             stack.enter_context(output_patch)
         stack.enter_context(
-            patch.object(import_widget_module, "set_widget_warning", lambda _w, message: warnings.append(message or ""))
+            patch.object(
+                import_widget_module,
+                "show_service_issues",
+                lambda _w, issues, subject="service", issue_label="warning": warnings.append(
+                    summarize_service_issues(issues, subject=subject, issue_label=issue_label)
+                ),
+            )
         )
         widget._apply_outputs(payload)
         _APP.processEvents()
@@ -120,7 +129,13 @@ def test_molecule_import_hub_clears_warning_after_clean_run():
         for output_patch in _patch_output_sends(widget):
             stack.enter_context(output_patch)
         stack.enter_context(
-            patch.object(import_widget_module, "set_widget_warning", lambda _w, message: warnings.append(message or ""))
+            patch.object(
+                import_widget_module,
+                "show_service_issues",
+                lambda _w, issues, subject="service", issue_label="warning": warnings.append(
+                    summarize_service_issues(issues, subject=subject, issue_label=issue_label)
+                ),
+            )
         )
         widget._apply_outputs(
             (
@@ -140,6 +155,42 @@ def test_molecule_import_hub_clears_warning_after_clean_run():
 
     assert warnings
     assert warnings[-1] == ""
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_molecule_import_hub_send_empty_clears_outputs_and_role_summary():
+    widget = OWMoleculeImportHub()
+    sent: list[tuple[str, object]] = []
+    widget.roles_label.setText("Something loaded")
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(widget.Outputs.data, "send", lambda value: sent.append(("data", value))))
+        stack.enter_context(patch.object(widget.Outputs.molecules, "send", lambda value: sent.append(("molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.accepted_data, "send", lambda value: sent.append(("accepted_data", value))))
+        stack.enter_context(patch.object(widget.Outputs.accepted_molecules, "send", lambda value: sent.append(("accepted_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.rejected_records, "send", lambda value: sent.append(("rejected_records", value))))
+        stack.enter_context(patch.object(widget.Outputs.import_report, "send", lambda value: sent.append(("import_report", value))))
+        stack.enter_context(patch.object(widget.Outputs.failed_records, "send", lambda value: sent.append(("failed_records", value))))
+        stack.enter_context(patch.object(widget.Outputs.import_summary, "send", lambda value: sent.append(("import_summary", value))))
+        stack.enter_context(patch.object(widget.Outputs.curation_summary, "send", lambda value: sent.append(("curation_summary", value))))
+        stack.enter_context(patch.object(import_widget_module, "set_widget_warning", lambda _w, message: None))
+        widget._send_empty()
+        _APP.processEvents()
+
+    assert sent == [
+        ("data", None),
+        ("molecules", []),
+        ("accepted_data", None),
+        ("accepted_molecules", []),
+        ("rejected_records", None),
+        ("import_report", None),
+        ("failed_records", None),
+        ("import_summary", None),
+        ("curation_summary", None),
+    ]
+    assert widget.roles_label.text() == "Import a file to inspect attributes, class variables, and metas."
 
     widget.onDeleteWidget()
     widget.close()

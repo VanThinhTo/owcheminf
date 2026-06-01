@@ -1,20 +1,29 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional, Tuple
 
-import numpy as np
 from AnyQt.QtCore import pyqtSlot
-from AnyQt.QtWidgets import QFileDialog, QCheckBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QPushButton, QVBoxLayout
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from AnyQt.QtWidgets import (
+    QCheckBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QVBoxLayout,
+)
+from Orange.data import Table
 from Orange.widgets.settings import Setting
 from Orange.widgets.utils.concurrent import ThreadExecutor, methodinvoke
 from Orange.widgets.widget import Output, OWWidget
 
 from chem_inf_widgets.chemcore.mol import ChemMol
+from chem_inf_widgets.chemcore.services.curation_summary import (
+    curation_summary_to_table,
+    summary_from_import,
+)
 from chem_inf_widgets.chemcore.services.from_orange import chemmols_to_table
-from chem_inf_widgets.chemcore.services.curation_summary import curation_summary_to_table, summary_from_import
-from chem_inf_widgets.chemcore.services.orange_table_utils import format_domain_role_summary
 from chem_inf_widgets.chemcore.services.molecule_import_service import (
     MoleculeImportConfig,
     MoleculeImportResult,
@@ -22,13 +31,18 @@ from chem_inf_widgets.chemcore.services.molecule_import_service import (
     import_records_as_dicts,
     import_summary_as_rows,
 )
-from chem_inf_widgets.chemcore.services.report_table_utils import report_rows_to_table, summary_rows_to_table
+from chem_inf_widgets.chemcore.services.orange_table_utils import format_domain_role_summary
+from chem_inf_widgets.chemcore.services.report_table_utils import (
+    report_rows_to_table,
+    summary_rows_to_table,
+)
 from chem_inf_widgets.widgets.ui_helpers import (
     format_done_status,
     format_failed_status,
     format_no_input_status,
     set_widget_warning,
 )
+from chem_inf_widgets.widgets.utils import send_output_values, show_service_issues
 
 
 class OWMoleculeImportHub(OWWidget):
@@ -194,7 +208,11 @@ class OWMoleculeImportHub(OWWidget):
         fut = self.executor.submit(self._run_background, path, self._config())
         fut.add_done_callback(self._on_done)
 
-    def _run_background(self, path: str, cfg: MoleculeImportConfig) -> Tuple[Table, List[ChemMol], Table, List[ChemMol], Table, Table, Table, Table, Table, MoleculeImportResult]:
+    def _run_background(
+        self,
+        path: str,
+        cfg: MoleculeImportConfig,
+    ) -> tuple[Table, list[ChemMol], Table, list[ChemMol], Table, Table, Table, Table, Table, MoleculeImportResult]:
         result = import_molecule_file(path, cfg)
         data = chemmols_to_table(result.mols)
         accepted_mols = self._accepted_molecules(result)
@@ -231,43 +249,38 @@ class OWMoleculeImportHub(OWWidget):
             prefix="Import complete",
         ))
         self.roles_label.setText(format_domain_role_summary(data.domain))
-        set_widget_warning(self, self._service_issue_warning(result))
-        self.Outputs.data.send(data)
-        self.Outputs.molecules.send(mols)
-        self.Outputs.accepted_data.send(accepted_data)
-        self.Outputs.accepted_molecules.send(accepted_mols)
-        self.Outputs.rejected_records.send(rejected)
-        self.Outputs.import_report.send(report)
-        self.Outputs.failed_records.send(failed)
-        self.Outputs.import_summary.send(summary)
-        self.Outputs.curation_summary.send(curation)
+        show_service_issues(self, getattr(result, "issues", []), subject="import")
+        send_output_values(
+            (self.Outputs.data, data),
+            (self.Outputs.molecules, mols),
+            (self.Outputs.accepted_data, accepted_data),
+            (self.Outputs.accepted_molecules, accepted_mols),
+            (self.Outputs.rejected_records, rejected),
+            (self.Outputs.import_report, report),
+            (self.Outputs.failed_records, failed),
+            (self.Outputs.import_summary, summary),
+            (self.Outputs.curation_summary, curation),
+        )
 
     def _send_empty(self) -> None:
         set_widget_warning(self, "")
-        self.Outputs.data.send(None)
-        self.Outputs.molecules.send([])
-        self.Outputs.accepted_data.send(None)
-        self.Outputs.accepted_molecules.send([])
-        self.Outputs.rejected_records.send(None)
-        self.Outputs.import_report.send(None)
-        self.Outputs.failed_records.send(None)
-        self.Outputs.import_summary.send(None)
-        self.Outputs.curation_summary.send(None)
+        send_output_values(
+            (self.Outputs.data, None),
+            (self.Outputs.molecules, []),
+            (self.Outputs.accepted_data, None),
+            (self.Outputs.accepted_molecules, []),
+            (self.Outputs.rejected_records, None),
+            (self.Outputs.import_report, None),
+            (self.Outputs.failed_records, None),
+            (self.Outputs.import_summary, None),
+            (self.Outputs.curation_summary, None),
+        )
         if hasattr(self, "roles_label"):
             self.roles_label.setText("Import a file to inspect attributes, class variables, and metas.")
 
     @staticmethod
-    def _service_issue_warning(result: MoleculeImportResult) -> str:
-        issues = list(getattr(result, "issues", []) or [])
-        if not issues:
-            return ""
-        first = issues[0]
-        row_text = f" Row {first.row_index}." if first.row_index is not None else ""
-        return f"{len(issues)} import warning(s).{row_text} {first.message}".strip()
-
-    @staticmethod
-    def _accepted_molecules(result: MoleculeImportResult) -> List[ChemMol]:
-        accepted: List[ChemMol] = []
+    def _accepted_molecules(result: MoleculeImportResult) -> list[ChemMol]:
+        accepted: list[ChemMol] = []
         valid_records = [r for r in result.records if r.ok]
         for cm, rec in zip(result.mols, valid_records):
             if rec.accepted:
