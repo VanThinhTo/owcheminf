@@ -28,10 +28,7 @@ _AUTO = "— auto-detect —"
 # ── helpers ────────────────────────────────────────────────────────────────
 
 def _is_nan(value: Any) -> bool:
-    try:
-        return isinstance(value, float) and math.isnan(value)
-    except Exception:
-        return False
+    return isinstance(value, (float, np.floating)) and math.isnan(float(value))
 
 
 def _orange_value_to_python(var, value: Any) -> Any:
@@ -42,7 +39,7 @@ def _orange_value_to_python(var, value: Any) -> Any:
             idx = int(value)
             if 0 <= idx < len(var.values):
                 return var.values[idx]
-        except Exception:
+        except (TypeError, ValueError, OverflowError):
             pass
     if isinstance(value, np.generic):
         return value.item()
