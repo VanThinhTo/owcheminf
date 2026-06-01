@@ -102,7 +102,7 @@ def is_missing(value: Any) -> bool:
         return value.strip() in {"", "?", "nan", "None"}
     try:
         return bool(math.isnan(float(value)))
-    except Exception:
+    except (TypeError, ValueError):
         return False
 
 
@@ -113,7 +113,7 @@ def as_float_or_nan(value: Any) -> float:
         value = value.strip().replace(",", ".")
     try:
         return float(value)
-    except Exception:
+    except (TypeError, ValueError):
         return float("nan")
 
 
@@ -125,7 +125,7 @@ def column_is_numeric(values: Sequence[Any]) -> bool:
             continue
         try:
             float(str(value).strip().replace(",", "."))
-        except Exception:
+        except ValueError:
             return False
         saw_value = True
     return saw_value
