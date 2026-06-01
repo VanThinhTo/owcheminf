@@ -1,3 +1,17 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [0.2.8] - 2026-06-01
+
+### Changed
+- Aligned runtime dependency declarations between `pyproject.toml`, `environment.yml`, and `environment-dev.yml`.
+- Declared `pyqtgraph` as an explicit runtime dependency because multiple widgets import it directly.
+- Added shared `ruff`, `black`, `isort`, and `pytest` configuration to `pyproject.toml`.
+- Added a repository-level `.pre-commit-config.yaml` for `ruff`, `black`, and `isort`.
+
 ## 0.2.7 - Descriptor Pre-selector dashboard UI
 
 - Fixed the macOS layout issue where the control panel could occupy most of the widget window.
@@ -22,19 +36,12 @@
 - Renamed Descriptor Explorer widget display name to **QSAR Descriptor Explorer** for easier discovery in Orange.
 - Widget remains registered under **Cheminf - QSAR**.
 
-# Changelog
-
 ## 0.2.3 - QSAR report/model hub compatibility
 
 - Added a `Model Summary` input to `QSAR Report Generator`.
 - `QSAR/QSPR Model Hub → Model Summary` can now be connected directly to the report generator.
 - If both `Validation Summary` and `Model Summary` are connected, `Validation Summary` is used first.
 - Updated QSAR report documentation with the recommended connection map.
-
-
-All notable changes to this project will be documented in this file.
-
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [0.2.2] - 2026-05-17
 

@@ -8,6 +8,7 @@ dependencies:
   - python-build
 
   # Core chemoinformatics and scientific runtime
+  - anyqt
   - rdkit
   - numpy
   - pandas

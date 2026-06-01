@@ -43,6 +43,7 @@ dependencies = [
     "matplotlib",
     "requests",
     "pillow",
+    "pyqtgraph",
     "pyyaml",
     "networkx",
     "chardet"
@@ -69,7 +70,8 @@ dev = [
     "black",
     "isort",
     "build",
-    "twine"
+    "twine",
+    "pre-commit"
 ]
 all = [
     "mordred",
@@ -145,3 +147,22 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "C4", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+known_first_party = ["chem_inf_widgets"]

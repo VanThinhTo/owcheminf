@@ -6,6 +6,7 @@ dependencies:
   - pip
 
   # Core runtime
+  - anyqt
   - rdkit
   - numpy
   - pandas

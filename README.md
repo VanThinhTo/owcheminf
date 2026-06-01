@@ -51,7 +51,8 @@ For a fuller local developer setup with optional tooling already present:
 ```bash
 conda env create -f environment-dev.yml
 conda activate owcheminf-dev
-pip install -e .
+pip install -e .[dev]
+pre-commit install
 orange-canvas
 ```
 
