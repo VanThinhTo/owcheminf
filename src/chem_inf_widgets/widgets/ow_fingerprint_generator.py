@@ -683,12 +683,26 @@ class OWFingerprintGenerator(OWWidget):
         self._worker = None
 
         res, valid_smiles = payload
+        failure_warning = ""
+        if res.failed_indices:
+            if getattr(res, "errors", None):
+                preview = str(res.errors[0]).strip()
+                if len(res.failed_indices) > 1:
+                    failure_warning = (
+                        f"{preview} ({len(res.failed_indices)} molecules failed in total.)"
+                    )
+                else:
+                    failure_warning = preview
+            else:
+                failure_warning = (
+                    f"{len(res.failed_indices)} molecules failed during fingerprint generation."
+                )
 
         if res.X.shape[0] == 0:
-            set_widget_warning(self, "No valid molecules.")
+            set_widget_warning(self, failure_warning or "No valid molecules.")
             self.Outputs.fingerprints.send(None)
             self.Outputs.molecules.send(None)
-            self.lbl_info.setText("No valid molecules.")
+            self.lbl_info.setText(failure_warning or "No valid molecules.")
             self._update_buttons()
             return
 
@@ -904,6 +918,8 @@ class OWFingerprintGenerator(OWWidget):
             + (f"; descriptors={len(desc_attrs)}" if desc_attrs else "")
             + ("; Molecules output=ON" if self.output_molecules else "")
         )
+        if failure_warning:
+            set_widget_warning(self, failure_warning)
         self._update_buttons()
         self._restart_if_pending()
 

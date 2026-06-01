@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Callable, Dict, List, Optional, Sequence
 
@@ -8,6 +8,7 @@ import numpy as np
 from rdkit import Chem, rdBase
 from rdkit.Chem import AllChem, MACCSkeys, rdmolops
 
+from chem_inf_widgets.chemcore.result import ServiceIssue
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
 
 try:
@@ -37,6 +38,7 @@ class FingerprintResult:
     radius: int = 0
     params: Optional[Dict[str, object]] = None
     errors: Optional[List[str]] = None
+    issues: list[ServiceIssue] = field(default_factory=list)
 
 
 def _mol_from_smiles(
@@ -100,32 +102,49 @@ def _compute_fp(
     if t == "morgan":
         # New API first
         gen = _get_morgan_gen(radius=radius, bit_size=bit_size)
+        generator_error: Exception | None = None
         if gen is not None:
             try:
                 fp = gen.GetFingerprint(mol)
                 return _bitvect_to_numpy(fp)
-            except Exception:
-                pass
+            except Exception as exc:
+                generator_error = exc
 
         # Fallback (older RDKit) - Suppress Deprecation Warnings
         blocker = rdBase.BlockLogs()
         try:
             fp = AllChem.GetMorganFingerprintAsBitVect(mol, int(radius), nBits=int(bit_size))
             return _bitvect_to_numpy(fp)
+        except Exception as exc:
+            if generator_error is not None:
+                raise RuntimeError(
+                    "Morgan fingerprint generation failed with both the preferred "
+                    f"generator ({generator_error}) and the RDKit fallback ({exc})."
+                ) from exc
+            raise
         finally:
             del blocker
 
     if t == "rdkit":
         gen = _get_rdkit_gen(bit_size=bit_size)
+        generator_error: Exception | None = None
         if gen is not None:
             try:
                 fp = gen.GetFingerprint(mol)
                 return _bitvect_to_numpy(fp)
-            except Exception:
-                pass
+            except Exception as exc:
+                generator_error = exc
 
-        fp = rdmolops.RDKFingerprint(mol, fpSize=int(bit_size))
-        return _bitvect_to_numpy(fp)
+        try:
+            fp = rdmolops.RDKFingerprint(mol, fpSize=int(bit_size))
+            return _bitvect_to_numpy(fp)
+        except Exception as exc:
+            if generator_error is not None:
+                raise RuntimeError(
+                    "RDKit fingerprint generation failed with both the preferred "
+                    f"generator ({generator_error}) and the classic fallback ({exc})."
+                ) from exc
+            raise
 
     if t == "maccs":
         fp = MACCSkeys.GenMACCSKeys(mol)  # 167 bits
@@ -133,7 +152,9 @@ def _compute_fp(
 
     if t == "avalon":
         if pyAvalonTools is None:
-            return None
+            raise RuntimeError(
+                "Avalon fingerprint support is unavailable in this RDKit build."
+            )
         fp = pyAvalonTools.GetAvalonFP(mol, nBits=int(bit_size))
         return _bitvect_to_numpy(fp)
 
@@ -159,6 +180,7 @@ def compute_fingerprints_from_smiles(
     valid_idx: List[int] = []
     failed_idx: List[int] = []
     errors: List[str] = []
+    issues: list[ServiceIssue] = []
     rows: List[np.ndarray] = []
     valid_smiles: List[str] = []
 
@@ -177,7 +199,25 @@ def compute_fingerprints_from_smiles(
 
         if fp_arr is None:
             failed_idx.append(i)
-            errors.append(parse_msg or "Fingerprint computation failed.")
+            error_message = parse_msg or "Fingerprint computation failed."
+            issue_code = (
+                "fingerprint_input_invalid"
+                if mol is None
+                else "fingerprint_generation_failed"
+            )
+            errors.append(error_message)
+            issues.append(
+                ServiceIssue(
+                    code=issue_code,
+                    message=error_message,
+                    severity="warning",
+                    row_index=i + 1,
+                    details={
+                        "fp_type": str(fp_type),
+                        "input_smiles": str(smi),
+                    },
+                )
+            )
         else:
             valid_idx.append(i)
             rows.append(fp_arr)
@@ -207,6 +247,7 @@ def compute_fingerprints_from_smiles(
                 "variance_threshold": variance_threshold,
             },
             errors=errors or ["No valid molecules."],
+            issues=issues,
         )
 
     X = np.vstack(rows).astype(np.float32)
@@ -246,4 +287,5 @@ def compute_fingerprints_from_smiles(
             "variance_threshold": variance_threshold,
         },
         errors=errors,
+        issues=issues,
     )
