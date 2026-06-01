@@ -29,7 +29,6 @@ from chem_inf_widgets.chemcore.services.qsar_target_contract import (
     prediction_column_name_for_target,
 )
 
-
 _SMILES_COLUMN_CANDIDATES = (
     "canonical_smiles",
     "smiles",
@@ -184,7 +183,7 @@ def _expected_features_from_model(model: Any) -> Optional[list[str]]:
     if isinstance(model, QSARPredictionModelBundle) and model.feature_names:
         return [str(x) for x in model.feature_names]
     if hasattr(model, "x_names_after_preprocess"):
-        return [str(x) for x in list(getattr(model, "x_names_after_preprocess"))]
+        return [str(x) for x in list(model.x_names_after_preprocess)]
     if hasattr(model, "feature_names_in_"):
         values = getattr(model, "feature_names_in_", None)
         if values is not None:
@@ -697,9 +696,17 @@ def save_model_pickle(model: Any, path: str | Path) -> str:
     return str(p)
 
 
-def load_model_pickle(path: str | Path) -> Any:
-    with Path(path).open("rb") as f:
-        return pickle.load(f)
+def load_trusted_pickle(path: str | Path, *, trusted: bool = False) -> Any:
+    if not trusted:
+        raise ValueError(
+            "Loading pickle files is unsafe. Only load model packages from trusted sources."
+        )
+    with Path(path).open("rb") as handle:
+        return pickle.load(handle)
+
+
+def load_model_pickle(path: str | Path, *, trusted: bool = False) -> Any:
+    return load_trusted_pickle(path, trusted=trusted)
 
 
 def write_prediction_package(

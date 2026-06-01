@@ -6,6 +6,8 @@
 The QSAR Prediction Packager applies a trained QSAR model to external/query compounds and creates a prediction package with predictions, feature report, manifest and failed records.
 It works directly with the `Model` output from `QSAR/QSPR Model Hub`, including exported FAIR model bundles reloaded from pickle in CLI workflows.
 
+Model packages may contain pickle files. Only load model packages from trusted sources.
+
 ## Inputs
 
 - Model: trained model object from QSAR Model Hub.
@@ -40,3 +42,5 @@ owcheminf-qsar-prediction-packager \
 ```
 
 Use `--save-model` to include a pickled model in the package.
+
+If you want to reuse an exported pickle with `--model-pickle`, also pass `--trusted-model-pickle` to confirm that the file comes from a trusted source.

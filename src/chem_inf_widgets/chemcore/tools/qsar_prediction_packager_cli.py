@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from chem_inf_widgets.chemcore.services.qsar_model_hub_service import QSARModelHubConfig, available_model_keys, train_qsar_model_hub
+from chem_inf_widgets.chemcore.services.qsar_model_hub_service import (
+    QSARModelHubConfig,
+    available_model_keys,
+    train_qsar_model_hub,
+)
 from chem_inf_widgets.chemcore.services.qsar_prediction_packager_service import (
     QSARPredictionPackagerConfig,
     load_model_pickle,
@@ -28,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
     source = p.add_mutually_exclusive_group(required=True)
     source.add_argument("--model-pickle", help="Pickled scikit-learn pipeline/model.")
     source.add_argument("--training-data", help="Training CSV/TSV; a model will be trained before prediction.")
+    p.add_argument(
+        "--trusted-model-pickle",
+        action="store_true",
+        help="Confirm that --model-pickle comes from a trusted source.",
+    )
     p.add_argument("--target-column", default="pActivity", help="Target column when --training-data is used.")
     p.add_argument("--id-column", default="compound_id")
     p.add_argument("--model", default="ridge", choices=available_model_keys(), help="Model key when --training-data is used.")
@@ -42,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         query = _read_table(args.query)
         if args.model_pickle:
-            model = load_model_pickle(args.model_pickle)
+            model = load_model_pickle(args.model_pickle, trusted=bool(args.trusted_model_pickle))
         else:
             train = _read_table(args.training_data)
             train_result = train_qsar_model_hub(

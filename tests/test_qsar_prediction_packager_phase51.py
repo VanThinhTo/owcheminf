@@ -1,13 +1,14 @@
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
-from pathlib import Path
+import pytest
 from Orange.widgets.tests.base import WidgetTest
 from sklearn.feature_selection import SelectKBest, f_regression
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LinearRegression, Ridge
 from sklearn.pipeline import Pipeline
-import pytest
-from types import SimpleNamespace
 
 from chem_inf_widgets.chemcore.descriptors.fingerprints import (
     compute_fingerprints_from_smiles,
@@ -19,10 +20,11 @@ from chem_inf_widgets.chemcore.services.mordred_descriptor_service import (
     MordredDescriptorService,
 )
 from chem_inf_widgets.chemcore.services.qsar_prediction_packager_service import (
-    QSARPredictionPackagerConfig,
     QSARPredictionModelBundle,
+    QSARPredictionPackagerConfig,
     build_qsar_prediction_bundle,
     load_model_pickle,
+    load_trusted_pickle,
     predict_with_qsar_model,
     selected_feature_names_from_model,
     write_model_bundle_package,
@@ -315,7 +317,7 @@ def test_write_model_bundle_package_writes_fair_artifacts(tmp_path):
     )
 
     paths = write_model_bundle_package(bundle, tmp_path / "boiling_point_model.pkl")
-    loaded = load_model_pickle(paths["model_pickle"])
+    loaded = load_model_pickle(paths["model_pickle"], trusted=True)
     manifest = pd.read_json(paths["manifest_json"], typ="series")
 
     assert Path(paths["model_pickle"]).exists()
@@ -327,6 +329,33 @@ def test_write_model_bundle_package_writes_fair_artifacts(tmp_path):
     assert loaded.training_summary["target_unit"] == "degC"
     assert manifest["artifact_kind"] == "qsar_prediction_model_bundle"
     assert manifest["selected_feature_names"] == ["MolWt"]
+
+
+def test_load_model_pickle_requires_trusted_flag(tmp_path):
+    model_path = tmp_path / "trusted_model.pkl"
+    with model_path.open("wb") as handle:
+        import pickle
+
+        pickle.dump({"demo": 1}, handle)
+
+    with pytest.raises(
+        ValueError,
+        match="Only load model packages from trusted sources",
+    ):
+        load_model_pickle(model_path)
+
+
+def test_load_trusted_pickle_loads_known_fixture(tmp_path):
+    model_path = tmp_path / "trusted_model.pkl"
+    payload = {"demo": 1, "values": [1, 2, 3]}
+    with model_path.open("wb") as handle:
+        import pickle
+
+        pickle.dump(payload, handle)
+
+    loaded = load_trusted_pickle(model_path, trusted=True)
+
+    assert loaded == payload
 
 
 class TestOWQSARPredictionPackager(WidgetTest):
