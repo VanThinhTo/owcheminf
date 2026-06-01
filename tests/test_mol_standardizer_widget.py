@@ -9,6 +9,7 @@ pytest.importorskip("Orange")
 pytest.importorskip("AnyQt")
 
 from AnyQt.QtWidgets import QApplication
+from Orange.data import Domain, StringVariable, Table
 
 from chem_inf_widgets.chemcore import molecule_contract as molecule_contract_module
 from chem_inf_widgets.widgets import ow_mol_standardizer as standardizer_widget_module
@@ -88,6 +89,33 @@ def test_mol_standardizer_widget_surfaces_runtime_warning():
 
     assert warnings
     assert warnings[-1] == "Could not attach contract metadata for standardized molecule row 1: contract boom"
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_mol_standardizer_set_data_warns_when_table_preparse_fails():
+    widget = OWMolStandardizer()
+    warnings: list[str] = []
+    table = Table.from_list(Domain([], metas=[StringVariable("SMILES")]), [["CCO"]])
+
+    with (
+        patch.object(
+            standardizer_widget_module,
+            "table_to_chemmols_with_report",
+            side_effect=RuntimeError("preparse boom"),
+        ),
+        patch.object(
+            standardizer_widget_module,
+            "set_widget_warning",
+            lambda _w, message: warnings.append(message or ""),
+        ),
+    ):
+        widget.set_data(table)
+        _APP.processEvents()
+
+    assert warnings
+    assert warnings[-1] == "Could not pre-parse input table: preparse boom"
 
     widget.onDeleteWidget()
     widget.close()
