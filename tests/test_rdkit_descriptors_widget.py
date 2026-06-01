@@ -10,6 +10,7 @@ pytest.importorskip("Orange")
 pytest.importorskip("AnyQt")
 
 from AnyQt.QtWidgets import QApplication
+from Orange.data import Domain, StringVariable, Table
 
 from chem_inf_widgets.chemcore.mol import ChemMol
 from chem_inf_widgets.chemcore.result import ServiceIssue
@@ -91,6 +92,33 @@ def test_rdkit_descriptors_widget_clears_warning_when_service_is_clean():
 
     assert warnings
     assert warnings[-1] == ""
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_rdkit_descriptors_widget_warns_when_table_preparse_fails():
+    widget = OWRdkitDescriptors()
+    table = Table.from_list(Domain([], metas=[StringVariable("SMILES")]), [["CCO"]])
+    warnings: list[str] = []
+
+    with (
+        patch.object(
+            rdkit_widget_module,
+            "table_to_chemmols_with_report",
+            side_effect=RuntimeError("preparse boom"),
+        ),
+        patch.object(
+            rdkit_widget_module,
+            "set_widget_warning",
+            lambda _w, message: warnings.append(message or ""),
+        ),
+    ):
+        widget.set_data(table)
+        _APP.processEvents()
+
+    assert warnings
+    assert warnings[-1] == "Could not pre-parse input table: preparse boom"
 
     widget.onDeleteWidget()
     widget.close()
