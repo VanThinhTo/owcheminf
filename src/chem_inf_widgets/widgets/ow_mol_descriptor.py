@@ -701,11 +701,14 @@ class OWMolDescriptor(OWWidget):
     def set_data(self, data: Optional[Table]) -> None:
         self._data = data
         self._table_report = None
+        set_widget_warning(self, "")
         if data is not None:
             try:
                 _mols, self._table_report = table_to_chemmols_with_report(data)
-            except Exception:
+            except Exception as exc:
                 self._table_report = None
+                logger.warning("Could not pre-parse input table for Mordred descriptor summary.", exc_info=True)
+                set_widget_warning(self, f"Could not pre-parse input table: {exc}")
         self._set_status(self._input_summary())
         self._maybe_autorun()
 
