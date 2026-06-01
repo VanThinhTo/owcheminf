@@ -30,6 +30,7 @@ from chem_inf_widgets.chemcore.molecule_contract import (
     ensure_contract_props,
     set_dropped_reason,
 )
+from chem_inf_widgets.chemcore.result import ServiceIssue
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_canonical_smiles, safe_mol_from_smiles
 
 
@@ -94,6 +95,7 @@ class MoleculeQCRecord:
     duplicate_count: int = 1
     parse_error: str = ""
     parse_warnings: str = ""
+    service_issues: List[ServiceIssue] = field(default_factory=list)
 
     @property
     def is_clean(self) -> bool:
@@ -120,15 +122,13 @@ class MoleculeQCResult:
     clean_indices: List[int]
     problem_indices: List[int]
     summary: MoleculeQCSummary
+    issues: List[ServiceIssue] = field(default_factory=list)
 
 
 def _inchikey(mol: Any) -> str:
     if Chem is None or mol is None:
         return ""
-    try:
-        return Chem.MolToInchiKey(Chem.Mol(mol)) or ""
-    except Exception:
-        return ""
+    return Chem.MolToInchiKey(Chem.Mol(mol)) or ""
 
 
 def _name_from_chemmol(cm: ChemMol, fallback: str) -> str:
@@ -153,8 +153,8 @@ def _mol_from_any(obj: Any, row_index: int, config: MoleculeQCConfig) -> tuple[O
         try:
             if isinstance(obj, Chem.Mol):  # type: ignore[arg-type]
                 return obj, f"mol_{row_index + 1}", safe_canonical_smiles(obj), "", []
-        except Exception:
-            pass
+        except Exception as exc:
+            return None, f"mol_{row_index + 1}", "", "", [f"Could not inspect RDKit molecule input: {exc}"]
 
     smi = "" if obj is None else str(obj).strip()
     parsed = safe_mol_from_smiles(smi, sanitize=config.sanitize, remove_hs=True)
@@ -164,13 +164,10 @@ def _mol_from_any(obj: Any, row_index: int, config: MoleculeQCConfig) -> tuple[O
 def _fragment_stats(mol: Any) -> tuple[int, int]:
     if Chem is None or mol is None:
         return 0, 0
-    try:
-        frags = Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False)
-        if not frags:
-            return 0, 0
-        return len(frags), max(int(f.GetNumHeavyAtoms()) for f in frags)
-    except Exception:
+    frags = Chem.GetMolFrags(mol, asMols=True, sanitizeFrags=False)
+    if not frags:
         return 0, 0
+    return len(frags), max(int(f.GetNumHeavyAtoms()) for f in frags)
 
 
 def _double_bond_stereo_stats(mol: Any) -> tuple[int, int]:
@@ -178,20 +175,17 @@ def _double_bond_stereo_stats(mol: Any) -> tuple[int, int]:
         return 0, 0
     possible = 0
     unassigned = 0
-    try:
-        for bond in mol.GetBonds():
-            if bond.GetBondType() != Chem.BondType.DOUBLE:
-                continue
-            begin = bond.GetBeginAtom()
-            end = bond.GetEndAtom()
-            # Terminal C=X double bonds usually do not carry E/Z stereo. This is a simple QC heuristic.
-            if begin.GetDegree() < 2 or end.GetDegree() < 2:
-                continue
-            possible += 1
-            if bond.GetStereo() in (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY):
-                unassigned += 1
-    except Exception:
-        return 0, 0
+    for bond in mol.GetBonds():
+        if bond.GetBondType() != Chem.BondType.DOUBLE:
+            continue
+        begin = bond.GetBeginAtom()
+        end = bond.GetEndAtom()
+        # Terminal C=X double bonds usually do not carry E/Z stereo. This is a simple QC heuristic.
+        if begin.GetDegree() < 2 or end.GetDegree() < 2:
+            continue
+        possible += 1
+        if bond.GetStereo() in (Chem.BondStereo.STEREONONE, Chem.BondStereo.STEREOANY):
+            unassigned += 1
     return possible, unassigned
 
 
@@ -200,10 +194,40 @@ def _add_issue(issues: List[str], codes: List[str], code: str, text: str) -> Non
     issues.append(text)
 
 
+def _add_service_warning(
+    issues: List[str],
+    codes: List[str],
+    service_issues: List[ServiceIssue],
+    *,
+    row_index: int,
+    input_smiles: str,
+    issue_code: str,
+    service_code: str,
+    message: str,
+    exc: Exception,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    text = f"{message}: {exc}"
+    _add_issue(issues, codes, issue_code, text)
+    issue_details = {"input_smiles": input_smiles}
+    if details:
+        issue_details.update(details)
+    service_issues.append(
+        ServiceIssue(
+            code=service_code,
+            message=text,
+            severity="warning",
+            row_index=row_index + 1,
+            details=issue_details,
+        )
+    )
+
+
 def _analyze_single(obj: Any, row_index: int, config: MoleculeQCConfig) -> MoleculeQCRecord:
     mol, name, input_smiles, parse_error, parse_warnings = _mol_from_any(obj, row_index, config)
     issues: List[str] = []
     codes: List[str] = []
+    service_issues: List[ServiceIssue] = []
 
     if mol is None:
         _add_issue(issues, codes, "INVALID_STRUCTURE", parse_error or "Invalid or missing molecular structure.")
@@ -221,11 +245,40 @@ def _analyze_single(obj: Any, row_index: int, config: MoleculeQCConfig) -> Molec
             n_issues=len(issues),
             parse_error=parse_error or "Invalid structure",
             parse_warnings=" | ".join(parse_warnings),
+            service_issues=service_issues,
         )
 
     canonical = safe_canonical_smiles(mol, remove_hs=True)
-    ikey = _inchikey(mol)
-    n_fragments, largest_fragment_atoms = _fragment_stats(mol)
+    try:
+        ikey = _inchikey(mol)
+    except Exception as exc:
+        ikey = ""
+        _add_service_warning(
+            issues,
+            codes,
+            service_issues,
+            row_index=row_index,
+            input_smiles=input_smiles,
+            issue_code="INCHIKEY_COMPUTATION_FAILED",
+            service_code="inchikey_computation_failed",
+            message="Could not derive InChIKey",
+            exc=exc,
+        )
+    try:
+        n_fragments, largest_fragment_atoms = _fragment_stats(mol)
+    except Exception as exc:
+        n_fragments, largest_fragment_atoms = 0, 0
+        _add_service_warning(
+            issues,
+            codes,
+            service_issues,
+            row_index=row_index,
+            input_smiles=input_smiles,
+            issue_code="FRAGMENT_ANALYSIS_FAILED",
+            service_code="fragment_analysis_failed",
+            message="Could not analyze disconnected fragments",
+            exc=exc,
+        )
 
     try:
         heavy_atoms = int(mol.GetNumHeavyAtoms())
@@ -234,8 +287,19 @@ def _analyze_single(obj: Any, row_index: int, config: MoleculeQCConfig) -> Molec
 
     try:
         mw = float(Descriptors.MolWt(mol)) if Descriptors is not None else 0.0
-    except Exception:
+    except Exception as exc:
         mw = 0.0
+        _add_service_warning(
+            issues,
+            codes,
+            service_issues,
+            row_index=row_index,
+            input_smiles=input_smiles,
+            issue_code="MOLECULAR_WEIGHT_COMPUTATION_FAILED",
+            service_code="molecular_weight_computation_failed",
+            message="Could not compute molecular weight",
+            exc=exc,
+        )
 
     try:
         formal_charge = int(sum(atom.GetFormalCharge() for atom in mol.GetAtoms()))
@@ -315,6 +379,7 @@ def _analyze_single(obj: Any, row_index: int, config: MoleculeQCConfig) -> Molec
         duplicate_key=canonical if config.duplicate_key == "canonical_smiles" else ikey,
         parse_error=parse_error,
         parse_warnings=" | ".join(parse_warnings),
+        service_issues=service_issues,
     )
 
 
@@ -368,7 +433,14 @@ def run_molecule_qc(items: Sequence[Any], config: Optional[MoleculeQCConfig] = N
         duplicate_records=len(duplicate_record_indices),
         issue_counts=dict(sorted(issue_counts.items())),
     )
-    return MoleculeQCResult(records=records, clean_indices=clean_indices, problem_indices=problem_indices, summary=summary)
+    service_issues = [issue for rec in records for issue in rec.service_issues]
+    return MoleculeQCResult(
+        records=records,
+        clean_indices=clean_indices,
+        problem_indices=problem_indices,
+        summary=summary,
+        issues=service_issues,
+    )
 
 
 
