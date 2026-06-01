@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 import numpy as np
@@ -19,6 +20,8 @@ from chem_inf_widgets.widgets.ui_helpers import (
     format_waiting_status,
     set_widget_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _find_smiles_vars(data: Table) -> List[StringVariable]:
@@ -71,6 +74,8 @@ class OWSimilaritySearch(OWWidget):
         self.reference_data: Optional[Table] = None
         self._query_report: Optional[TableMolConversionReport] = None
         self._reference_report: Optional[TableMolConversionReport] = None
+        self._query_report_error: Optional[str] = None
+        self._reference_report_error: Optional[str] = None
         self.mainArea.hide()
 
         root = QWidget(self.controlArea)
@@ -211,22 +216,29 @@ class OWSimilaritySearch(OWWidget):
     def _refresh_reports(self) -> None:
         self._query_report = None
         self._reference_report = None
+        self._query_report_error = None
+        self._reference_report_error = None
         if self.query_data is not None and len(self.query_data) > 0 and self.query_smiles_var_name:
             try:
                 _mols, self._query_report = table_to_chemmols_with_report(
                     self.query_data,
                     smiles_var=self.query_smiles_var_name,
                 )
-            except Exception:
+            except Exception as exc:
                 self._query_report = None
+                self._query_report_error = str(exc)
+                logger.warning("Could not pre-parse query table for similarity search summary.", exc_info=True)
         if self.reference_data is not None and len(self.reference_data) > 0 and self.reference_smiles_var_name:
             try:
                 _mols, self._reference_report = table_to_chemmols_with_report(
                     self.reference_data,
                     smiles_var=self.reference_smiles_var_name,
                 )
-            except Exception:
+            except Exception as exc:
                 self._reference_report = None
+                self._reference_report_error = str(exc)
+                logger.warning("Could not pre-parse reference table for similarity search summary.", exc_info=True)
+        set_widget_warning(self, self._combined_warning())
 
     def _update_status(self) -> None:
         if self.query_data is None or self.reference_data is None:
@@ -250,6 +262,24 @@ class OWSimilaritySearch(OWWidget):
         if bool(self.auto_run) and self.query_data is not None and self.reference_data is not None:
             self.commit()
 
+    def _combined_warning(self) -> Optional[str]:
+        parts = [
+            f"Query invalid skipped: {self._query_report.n_invalid}"
+            if self._query_report and self._query_report.n_invalid
+            else "",
+            f"Reference invalid skipped: {self._reference_report.n_invalid}"
+            if self._reference_report and self._reference_report.n_invalid
+            else "",
+            f"Could not pre-parse query input table: {self._query_report_error}"
+            if self._query_report_error
+            else "",
+            f"Could not pre-parse reference input table: {self._reference_report_error}"
+            if self._reference_report_error
+            else "",
+        ]
+        warning = "; ".join(part for part in parts if part)
+        return warning or None
+
     def commit(self) -> None:
         if self.query_data is None or self.reference_data is None:
             self.status_label.setText(format_required_inputs_status("Query data", "Reference data"))
@@ -272,15 +302,7 @@ class OWSimilaritySearch(OWWidget):
         self.Outputs.neighbor_pairs.send(self._pairs_table(hits))
         ref_indices = sorted({hit.reference_index for hit in hits})
         self.Outputs.hit_compounds.send(self.reference_data[ref_indices] if ref_indices else self.reference_data[:0])
-        set_widget_warning(
-            self,
-            None if (self._query_report is None and self._reference_report is None) else "; ".join(
-                part for part in [
-                    f"Query invalid skipped: {self._query_report.n_invalid}" if self._query_report and self._query_report.n_invalid else "",
-                    f"Reference invalid skipped: {self._reference_report.n_invalid}" if self._reference_report and self._reference_report.n_invalid else "",
-                ] if part
-            ),
-        )
+        set_widget_warning(self, self._combined_warning())
         self.status_label.setText(
             format_done_status(
                 f"neighbor pairs={len(hits)}",
