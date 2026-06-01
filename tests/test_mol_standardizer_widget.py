@@ -1,3 +1,5 @@
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 from contextlib import ExitStack
@@ -116,6 +118,39 @@ def test_mol_standardizer_set_data_warns_when_table_preparse_fails():
 
     assert warnings
     assert warnings[-1] == "Could not pre-parse input table: preparse boom"
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_mol_standardizer_no_input_clears_all_outputs():
+    widget = OWMolStandardizer()
+    sent: list[tuple[str, object]] = []
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(widget.Outputs.modeling_data, "send", lambda value: sent.append(("modeling_data", value))))
+        stack.enter_context(patch.object(widget.Outputs.data, "send", lambda value: sent.append(("data", value))))
+        stack.enter_context(patch.object(widget.Outputs.molecules, "send", lambda value: sent.append(("molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.qsar_ready_data, "send", lambda value: sent.append(("qsar_ready_data", value))))
+        stack.enter_context(patch.object(widget.Outputs.qsar_ready_molecules, "send", lambda value: sent.append(("qsar_ready_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.standardization_failed_data, "send", lambda value: sent.append(("failed_data", value))))
+        stack.enter_context(patch.object(widget.Outputs.standardization_failed_molecules, "send", lambda value: sent.append(("failed_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.standardization_report, "send", lambda value: sent.append(("report", value))))
+        stack.enter_context(patch.object(widget.Outputs.curation_summary, "send", lambda value: sent.append(("curation", value))))
+        widget._on_run()
+        _APP.processEvents()
+
+    assert sent == [
+        ("modeling_data", None),
+        ("data", None),
+        ("molecules", []),
+        ("qsar_ready_data", None),
+        ("qsar_ready_molecules", []),
+        ("failed_data", None),
+        ("failed_molecules", []),
+        ("report", None),
+        ("curation", None),
+    ]
 
     widget.onDeleteWidget()
     widget.close()

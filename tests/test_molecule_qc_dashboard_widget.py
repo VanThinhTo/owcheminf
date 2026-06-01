@@ -1,3 +1,5 @@
+# ruff: noqa: I001
+
 from __future__ import annotations
 
 from contextlib import ExitStack
@@ -16,6 +18,7 @@ from chem_inf_widgets.chemcore.services.molecule_qc_service import (
     MoleculeQCSummary,
 )
 from chem_inf_widgets.widgets import ow_molecule_qc_dashboard as qc_widget_module
+from chem_inf_widgets.widgets.utils import summarize_service_issues
 from chem_inf_widgets.widgets.ow_molecule_qc_dashboard import OWMoleculeQCDashboard
 
 
@@ -96,7 +99,9 @@ def test_molecule_qc_dashboard_surfaces_backend_service_warnings():
         for output_patch in _patch_output_sends(widget):
             stack.enter_context(output_patch)
         stack.enter_context(
-            patch.object(qc_widget_module, "set_widget_warning", lambda _w, message: warnings.append(message or ""))
+            patch.object(qc_widget_module, "show_service_issues", lambda _w, issues, subject="service", issue_label="warning": warnings.append(
+                summarize_service_issues(issues, subject=subject, issue_label=issue_label)
+            ))
         )
         widget._apply_outputs(payload)
         _APP.processEvents()
@@ -117,7 +122,9 @@ def test_molecule_qc_dashboard_clears_backend_warning_after_clean_run():
         for output_patch in _patch_output_sends(widget):
             stack.enter_context(output_patch)
         stack.enter_context(
-            patch.object(qc_widget_module, "set_widget_warning", lambda _w, message: warnings.append(message or ""))
+            patch.object(qc_widget_module, "show_service_issues", lambda _w, issues, subject="service", issue_label="warning": warnings.append(
+                summarize_service_issues(issues, subject=subject, issue_label=issue_label)
+            ))
         )
         widget._apply_outputs(
             (

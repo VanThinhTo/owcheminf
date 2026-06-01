@@ -39,6 +39,7 @@ from chem_inf_widgets.chemcore.services.descriptor_filter_service import (
     DescriptorFilterResult,
     run_descriptor_filter,
 )
+from chem_inf_widgets.widgets.utils import require_table, send_output_values
 
 pg.setConfigOptions(antialias=True)
 
@@ -525,14 +526,15 @@ class OWDescriptorFilter(OWWidget):
     @Inputs.data
     def set_data(self, data: Optional[Table]) -> None:
         self._data = data
-        if data is None:
-            self._set_status("No data.", ok=False)
+        if not require_table(data, self, message="No data."):
             self._cmb_target.blockSignals(True)
             self._cmb_target.clear()
             self._cmb_target.blockSignals(False)
-            self.Outputs.filtered_data.send(None)
-            self.Outputs.modeling_data.send(None)
-            self.Outputs.report.send(None)
+            send_output_values(
+                (self.Outputs.filtered_data, None),
+                (self.Outputs.modeling_data, None),
+                (self.Outputs.report, None),
+            )
             return
 
         all_vars = (list(data.domain.attributes)
@@ -586,7 +588,7 @@ class OWDescriptorFilter(OWWidget):
     # ── Run ───────────────────────────────────────────────────────────────
 
     def commit(self) -> None:
-        if self._data is None:
+        if not require_table(self._data, self, message="No data."):
             return
         t = self._cmb_target.currentText()
         cfg = DescriptorFilterConfig(

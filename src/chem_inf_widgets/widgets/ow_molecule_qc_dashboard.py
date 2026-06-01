@@ -26,6 +26,7 @@ from chem_inf_widgets.chemcore.services.molecule_qc_service import (
 )
 from chem_inf_widgets.chemcore.services.report_table_utils import report_rows_to_table, summary_rows_to_table
 from chem_inf_widgets.widgets.ui_helpers import format_done_status, format_failed_status, format_no_input_status, format_table_report, set_widget_warning
+from chem_inf_widgets.widgets.utils import send_output_values, show_service_issues
 
 
 class OWMoleculeQCDashboard(OWWidget):
@@ -300,42 +301,37 @@ class OWMoleculeQCDashboard(OWWidget):
                 prefix="QC complete",
             ),
         )
-        set_widget_warning(self, self._service_issue_warning(result))
-        self.Outputs.modeling_data.send(modeling_data)
-        self.Outputs.annotated_data.send(annotated_data)
-        self.Outputs.clean_data.send(clean_data)
-        self.Outputs.problem_data.send(problem_data)
-        self.Outputs.rejected_data.send(rejected_data)
-        self.Outputs.qc_report.send(report_table)
-        self.Outputs.qc_summary.send(summary_table)
-        self.Outputs.curation_summary.send(curation_table)
-        self.Outputs.annotated_molecules.send(annotated_mols)
-        self.Outputs.clean_molecules.send(clean_mols)
-        self.Outputs.problem_molecules.send(problem_mols)
-        self.Outputs.rejected_molecules.send(rejected_mols)
+        show_service_issues(self, getattr(result, "issues", []), subject="QC backend")
+        send_output_values(
+            (self.Outputs.modeling_data, modeling_data),
+            (self.Outputs.annotated_data, annotated_data),
+            (self.Outputs.clean_data, clean_data),
+            (self.Outputs.problem_data, problem_data),
+            (self.Outputs.rejected_data, rejected_data),
+            (self.Outputs.qc_report, report_table),
+            (self.Outputs.qc_summary, summary_table),
+            (self.Outputs.curation_summary, curation_table),
+            (self.Outputs.annotated_molecules, annotated_mols),
+            (self.Outputs.clean_molecules, clean_mols),
+            (self.Outputs.problem_molecules, problem_mols),
+            (self.Outputs.rejected_molecules, rejected_mols),
+        )
 
     def _send_empty(self) -> None:
-        self.Outputs.modeling_data.send(None)
-        self.Outputs.annotated_data.send(None)
-        self.Outputs.clean_data.send(None)
-        self.Outputs.problem_data.send(None)
-        self.Outputs.rejected_data.send(None)
-        self.Outputs.qc_report.send(None)
-        self.Outputs.qc_summary.send(None)
-        self.Outputs.curation_summary.send(None)
-        self.Outputs.annotated_molecules.send([])
-        self.Outputs.clean_molecules.send([])
-        self.Outputs.problem_molecules.send([])
-        self.Outputs.rejected_molecules.send([])
-
-    @staticmethod
-    def _service_issue_warning(result: MoleculeQCResult) -> str:
-        issues = list(getattr(result, "issues", []) or [])
-        if not issues:
-            return ""
-        first = issues[0]
-        row_text = f" Row {first.row_index}." if first.row_index is not None else ""
-        return f"{len(issues)} QC backend warning(s).{row_text} {first.message}".strip()
+        send_output_values(
+            (self.Outputs.modeling_data, None),
+            (self.Outputs.annotated_data, None),
+            (self.Outputs.clean_data, None),
+            (self.Outputs.problem_data, None),
+            (self.Outputs.rejected_data, None),
+            (self.Outputs.qc_report, None),
+            (self.Outputs.qc_summary, None),
+            (self.Outputs.curation_summary, None),
+            (self.Outputs.annotated_molecules, []),
+            (self.Outputs.clean_molecules, []),
+            (self.Outputs.problem_molecules, []),
+            (self.Outputs.rejected_molecules, []),
+        )
 
 
     @staticmethod

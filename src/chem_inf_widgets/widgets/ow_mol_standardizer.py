@@ -56,6 +56,7 @@ from chem_inf_widgets.widgets.ui_helpers import (
     format_table_report,
     set_widget_warning,
 )
+from chem_inf_widgets.widgets.utils import combine_messages, send_output_values
 
 logger = logging.getLogger(__name__)
 
@@ -334,15 +335,17 @@ class OWMolStandardizer(OWWidget):
     def _on_run(self) -> None:
         if (self._in_table is None or len(self._in_table) == 0) and not self._in_molecules:
             self._update_status(format_no_input_status())
-            self.Outputs.modeling_data.send(None)
-            self.Outputs.data.send(None)
-            self.Outputs.molecules.send([])
-            self.Outputs.qsar_ready_data.send(None)
-            self.Outputs.qsar_ready_molecules.send([])
-            self.Outputs.standardization_failed_data.send(None)
-            self.Outputs.standardization_failed_molecules.send([])
-            self.Outputs.standardization_report.send(None)
-            self.Outputs.curation_summary.send(None)
+            send_output_values(
+                (self.Outputs.modeling_data, None),
+                (self.Outputs.data, None),
+                (self.Outputs.molecules, []),
+                (self.Outputs.qsar_ready_data, None),
+                (self.Outputs.qsar_ready_molecules, []),
+                (self.Outputs.standardization_failed_data, None),
+                (self.Outputs.standardization_failed_molecules, []),
+                (self.Outputs.standardization_report, None),
+                (self.Outputs.curation_summary, None),
+            )
             return
 
         cfg = self._make_config()
@@ -574,15 +577,17 @@ class OWMolStandardizer(OWWidget):
     def _apply_error(self, msg: str) -> None:
         self._set_busy(False, format_failed_status(msg))
         set_widget_warning(self, "")
-        self.Outputs.modeling_data.send(None)
-        self.Outputs.data.send(None)
-        self.Outputs.molecules.send([])
-        self.Outputs.qsar_ready_data.send(None)
-        self.Outputs.qsar_ready_molecules.send([])
-        self.Outputs.standardization_failed_data.send(None)
-        self.Outputs.standardization_failed_molecules.send([])
-        self.Outputs.standardization_report.send(None)
-        self.Outputs.curation_summary.send(None)
+        send_output_values(
+            (self.Outputs.modeling_data, None),
+            (self.Outputs.data, None),
+            (self.Outputs.molecules, []),
+            (self.Outputs.qsar_ready_data, None),
+            (self.Outputs.qsar_ready_molecules, []),
+            (self.Outputs.standardization_failed_data, None),
+            (self.Outputs.standardization_failed_molecules, []),
+            (self.Outputs.standardization_report, None),
+            (self.Outputs.curation_summary, None),
+        )
 
     @pyqtSlot(object)
     def _apply_outputs(self, payload: object) -> None:
@@ -623,7 +628,7 @@ class OWMolStandardizer(OWWidget):
         runtime_warning = self._runtime_warning_message(runtime_warnings)
         if runtime_warning:
             warning_messages.append(runtime_warning)
-        set_widget_warning(self, " ".join(warning_messages))
+        set_widget_warning(self, combine_messages(*warning_messages))
         self.Outputs.modeling_data.send(modeling_table)
         self.Outputs.data.send(table)
         self.Outputs.molecules.send(mols)
