@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -27,6 +27,7 @@ from chem_inf_widgets.chemcore.molecule_contract import (
     ensure_contract_props,
     set_dropped_reason,
 )
+from chem_inf_widgets.chemcore.result import ServiceIssue
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_canonical_smiles, safe_mol_from_smiles
 
 IMPORT_HUB_VERSION = "0.2.0"
@@ -89,6 +90,7 @@ class MoleculeImportRecord:
     duplicate_group_index: int = 0
     accepted: bool = True
     rejection_reason: str = ""
+    service_issues: List[ServiceIssue] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -113,6 +115,7 @@ class MoleculeImportResult:
     mols: List[ChemMol]
     records: List[MoleculeImportRecord]
     summary: MoleculeImportSummary
+    issues: List[ServiceIssue] = field(default_factory=list)
 
     @property
     def failed_records(self) -> List[MoleculeImportRecord]:
@@ -154,20 +157,27 @@ def _find_column(columns: Sequence[str], preferred: Optional[str], candidates: S
     return ""
 
 
-def _detect_delimiter(path: Path, explicit: Optional[str] = None) -> str:
+def _detect_delimiter(path: Path, explicit: Optional[str] = None) -> tuple[str, List[ServiceIssue]]:
     if explicit:
         if explicit == "\\t":
-            return "\t"
-        return explicit
+            return "\t", []
+        return explicit, []
     suffix = path.suffix.lower()
     if suffix == ".tsv":
-        return "\t"
+        return "\t", []
     try:
         sample = path.read_text(encoding="utf-8", errors="replace")[:4096]
         dialect = csv.Sniffer().sniff(sample, delimiters=",\t;")
-        return dialect.delimiter
-    except Exception:
-        return ","
+        return dialect.delimiter, []
+    except (csv.Error, OSError) as exc:
+        return ",", [
+            ServiceIssue(
+                code="delimiter_detection_failed",
+                message=f"Could not auto-detect delimiter for '{path.name}': {exc}. Falling back to ','.",
+                severity="warning",
+                details={"path": str(path)},
+            )
+        ]
 
 
 
@@ -175,16 +185,35 @@ def _detect_delimiter(path: Path, explicit: Optional[str] = None) -> str:
 def _safe_inchikey(mol: Any) -> str:
     if Chem is None or mol is None:
         return ""
-    try:
-        return Chem.MolToInchiKey(Chem.Mol(mol)) or ""
-    except Exception:
-        return ""
+    return Chem.MolToInchiKey(Chem.Mol(mol)) or ""
 
 
 def _record_with_updates(record: MoleculeImportRecord, **updates: Any) -> MoleculeImportRecord:
-    values = asdict(record)
-    values.update(updates)
-    return MoleculeImportRecord(**values)
+    return replace(record, **updates)
+
+
+def _inchikey_with_issues(
+    mol: Any,
+    *,
+    row_index: int,
+    input_smiles: str,
+    source_name: str,
+) -> tuple[str, List[str], List[ServiceIssue]]:
+    if Chem is None or mol is None:
+        return "", [], []
+    try:
+        return _safe_inchikey(mol), [], []
+    except Exception as exc:
+        message = f"Could not derive InChIKey: {exc}"
+        return "", [message], [
+            ServiceIssue(
+                code="inchikey_computation_failed",
+                message=message,
+                severity="warning",
+                row_index=row_index,
+                details={"input_smiles": input_smiles, "source_name": source_name},
+            )
+        ]
 
 
 def _finalize_import_result(result: MoleculeImportResult, config: MoleculeImportConfig) -> MoleculeImportResult:
@@ -200,7 +229,12 @@ def _finalize_import_result(result: MoleculeImportResult, config: MoleculeImport
             for r in result.records
         ]
         summary = _summary_with_acceptance(result.summary, records)
-        return MoleculeImportResult(mols=list(result.mols), records=records, summary=summary)
+        return MoleculeImportResult(
+            mols=list(result.mols),
+            records=records,
+            summary=summary,
+            issues=list(result.issues),
+        )
 
     keys: Dict[str, List[int]] = {}
     for idx, rec in enumerate(result.records):
@@ -269,7 +303,12 @@ def _finalize_import_result(result: MoleculeImportResult, config: MoleculeImport
             props["IMPORT_WARNINGS"] = " | ".join(rec.warnings)
 
     summary = _summary_with_acceptance(result.summary, records)
-    return MoleculeImportResult(mols=list(result.mols), records=records, summary=summary)
+    return MoleculeImportResult(
+        mols=list(result.mols),
+        records=records,
+        summary=summary,
+        issues=list(result.issues),
+    )
 
 
 def _summary_with_acceptance(summary: MoleculeImportSummary, records: Sequence[MoleculeImportRecord]) -> MoleculeImportSummary:
@@ -304,13 +343,16 @@ def detect_import_format(path: str | Path) -> str:
     raise ValueError(f"Unsupported file extension '{suffix}'. Supported: {sorted(SUPPORTED_EXTENSIONS)}")
 
 
-def _read_table_rows(path: Path, config: MoleculeImportConfig) -> Tuple[List[Dict[str, Any]], List[str], str]:
-    delimiter = _detect_delimiter(path, config.delimiter)
+def _read_table_rows(
+    path: Path,
+    config: MoleculeImportConfig,
+) -> Tuple[List[Dict[str, Any]], List[str], str, List[ServiceIssue]]:
+    delimiter, issues = _detect_delimiter(path, config.delimiter)
     with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
         reader = csv.DictReader(handle, delimiter=delimiter)
         columns = list(reader.fieldnames or [])
         rows = [dict(row) for row in reader]
-    return rows, columns, delimiter
+    return rows, columns, delimiter, issues
 
 
 def _parse_smiles_record(
@@ -325,6 +367,7 @@ def _parse_smiles_record(
 ) -> Tuple[Optional[ChemMol], MoleculeImportRecord]:
     parsed = safe_mol_from_smiles(str(smiles or "").strip(), sanitize=bool(config.sanitize), remove_hs=bool(config.remove_hs))
     warnings = list(parsed.warnings or [])
+    service_issues: List[ServiceIssue] = []
     if not parsed.ok or parsed.mol is None:
         return None, MoleculeImportRecord(
             row_index=row_index,
@@ -338,6 +381,7 @@ def _parse_smiles_record(
             error=parsed.error or "Invalid or empty SMILES.",
             warnings=warnings,
             props=props,
+            service_issues=service_issues,
         )
     canonical = parsed.canonical_smiles or safe_canonical_smiles(parsed.mol, remove_hs=True)
     mol_props = dict(props)
@@ -358,7 +402,16 @@ def _parse_smiles_record(
         input_smiles=str(smiles or ""),
     )
     append_transform_step(cm, f"import_{source_format}")
-    inchikey = str(cm.props.get(INCHIKEY) or _safe_inchikey(parsed.mol))
+    inchikey = str(cm.props.get(INCHIKEY) or "")
+    if not inchikey:
+        inchikey, inchikey_warnings, inchikey_issues = _inchikey_with_issues(
+            parsed.mol,
+            row_index=row_index,
+            input_smiles=str(smiles or ""),
+            source_name=source_name,
+        )
+        warnings.extend(inchikey_warnings)
+        service_issues.extend(inchikey_issues)
     mol_id = str(cm.props.get(MOL_ID) or name or f"mol_{row_index}")
     return cm, MoleculeImportRecord(
         row_index=row_index,
@@ -375,13 +428,14 @@ def _parse_smiles_record(
         mol_id=mol_id,
         duplicate_key=inchikey or canonical,
         accepted=True,
+        service_issues=service_issues,
     )
 
 
 def import_table_file(path: str | Path, config: Optional[MoleculeImportConfig] = None) -> MoleculeImportResult:
     cfg = config or MoleculeImportConfig()
     p = Path(path)
-    rows, columns, delimiter = _read_table_rows(p, cfg)
+    rows, columns, delimiter, issues = _read_table_rows(p, cfg)
     smiles_col = _find_column(columns, cfg.smiles_column, SMILES_COLUMN_CANDIDATES)
     if not smiles_col:
         raise ValueError("No SMILES-like column was detected. Specify --smiles-column.")
@@ -416,7 +470,8 @@ def import_table_file(path: str | Path, config: Optional[MoleculeImportConfig] =
         name_column=name_col,
         columns=columns,
     )
-    return MoleculeImportResult(mols=mols, records=records, summary=summary)
+    issues.extend(issue for rec in records for issue in rec.service_issues)
+    return MoleculeImportResult(mols=mols, records=records, summary=summary, issues=issues)
 
 
 def _split_smi_line(line: str) -> Tuple[str, str, Dict[str, Any]]:
@@ -465,7 +520,8 @@ def import_smi_file(path: str | Path, config: Optional[MoleculeImportConfig] = N
         name_column="remaining_tokens",
         columns=["smiles", "name"],
     )
-    return MoleculeImportResult(mols=mols, records=records, summary=summary)
+    issues = [issue for rec in records for issue in rec.service_issues]
+    return MoleculeImportResult(mols=mols, records=records, summary=summary, issues=issues)
 
 
 def import_sdf_file(path: str | Path, config: Optional[MoleculeImportConfig] = None) -> MoleculeImportResult:
@@ -476,6 +532,7 @@ def import_sdf_file(path: str | Path, config: Optional[MoleculeImportConfig] = N
     supplier = Chem.SDMolSupplier(str(p), sanitize=bool(cfg.sanitize), removeHs=bool(cfg.remove_hs))
     mols: List[ChemMol] = []
     records: List[MoleculeImportRecord] = []
+    issues: List[ServiceIssue] = []
     columns: set[str] = set()
     for i, mol in enumerate(supplier, start=1):
         if mol is None:
@@ -514,9 +571,21 @@ def import_sdf_file(path: str | Path, config: Optional[MoleculeImportConfig] = N
             input_smiles=canonical,
         )
         append_transform_step(cm, "import_sdf")
-        inchikey = str(cm.props.get(INCHIKEY) or _safe_inchikey(mol))
+        warnings: List[str] = []
+        service_issues: List[ServiceIssue] = []
+        inchikey = str(cm.props.get(INCHIKEY) or "")
+        if not inchikey:
+            inchikey, warnings, service_issues = _inchikey_with_issues(
+                mol,
+                row_index=i,
+                input_smiles=canonical,
+                source_name=p.name,
+            )
+            if warnings:
+                props["IMPORT_WARNINGS"] = " | ".join(warnings)
         mol_id = str(cm.props.get(MOL_ID) or name or f"mol_{i}")
         mols.append(cm)
+        issues.extend(service_issues)
         records.append(MoleculeImportRecord(
             row_index=i,
             source_format="sdf",
@@ -526,11 +595,13 @@ def import_sdf_file(path: str | Path, config: Optional[MoleculeImportConfig] = N
             canonical_smiles=canonical,
             ok=True,
             status="imported",
+            warnings=warnings,
             props={k: v for k, v in props.items() if k not in {"SMILES", "IMPORT_SOURCE_FORMAT", "IMPORT_ROW_INDEX"}},
             inchikey=inchikey,
             mol_id=mol_id,
             duplicate_key=inchikey or canonical,
             accepted=True,
+            service_issues=service_issues,
         ))
     summary = MoleculeImportSummary(
         source_path=str(p),
@@ -542,7 +613,7 @@ def import_sdf_file(path: str | Path, config: Optional[MoleculeImportConfig] = N
         name_column="_Name",
         columns=sorted(columns),
     )
-    return MoleculeImportResult(mols=mols, records=records, summary=summary)
+    return MoleculeImportResult(mols=mols, records=records, summary=summary, issues=issues)
 
 
 def import_molecule_file(path: str | Path, config: Optional[MoleculeImportConfig] = None) -> MoleculeImportResult:

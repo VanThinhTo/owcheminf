@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import csv
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 rdkit = pytest.importorskip("rdkit")
 
 from chem_inf_widgets.chemcore.molecule_contract import DROPPED_REASON, QC_DUPLICATE_COUNT, QC_FLAGS, ROW_ID, TRANSFORM_LOG
+from chem_inf_widgets.chemcore.services import molecule_import_service
 from chem_inf_widgets.chemcore.services.molecule_import_service import (
     MoleculeImportConfig,
     detect_import_format,
@@ -143,3 +145,36 @@ def test_import_hub_can_reject_duplicate_structures_after_first(tmp_path: Path):
     rejected_duplicate = next(cm for cm in result.mols if cm.props.get(DROPPED_REASON) == "duplicate_structure")
     assert rejected_duplicate.props["IMPORT_ACCEPTED"] == 0
     assert "duplicate_structure" in str(rejected_duplicate.props.get(QC_FLAGS, ""))
+
+
+def test_import_hub_reports_delimiter_detection_fallback(tmp_path: Path):
+    p = tmp_path / "demo.csv"
+    p.write_text("name,smiles\nethanol,CCO\n", encoding="utf-8")
+
+    with mock.patch.object(csv.Sniffer, "sniff", side_effect=csv.Error("sniff boom")):
+        result = import_molecule_file(p)
+
+    assert result.summary.valid_records == 1
+    assert any(issue.code == "delimiter_detection_failed" for issue in result.issues)
+    assert "sniff boom" in result.issues[0].message
+
+
+def test_import_hub_reports_inchikey_failure_but_keeps_valid_record(tmp_path: Path):
+    p = tmp_path / "demo.csv"
+    p.write_text("name,smiles\nethanol,CCO\n", encoding="utf-8")
+
+    with mock.patch.object(
+        molecule_import_service.Chem,
+        "MolToInchiKey",
+        side_effect=RuntimeError("ikey boom"),
+    ):
+        result = import_molecule_file(p)
+
+    assert result.summary.valid_records == 1
+    assert result.records[0].ok is True
+    assert result.records[0].service_issues
+    assert result.records[0].service_issues[0].code == "inchikey_computation_failed"
+    assert any("ikey boom" in warning for warning in result.records[0].warnings)
+    assert result.issues
+    assert result.issues[0].code == "inchikey_computation_failed"
+    assert result.issues[0].row_index == 1
