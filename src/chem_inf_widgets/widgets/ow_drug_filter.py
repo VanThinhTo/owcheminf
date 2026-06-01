@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -33,6 +34,8 @@ from chem_inf_widgets.widgets.ui_helpers import (
     set_widget_error,
     set_widget_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _guess_smiles_column(table: Table) -> int:
@@ -186,8 +189,10 @@ class OWDrugFilter(OWWidget):
             return
         try:
             _mols, self._table_report = table_to_chemmols_with_report(data)
-        except Exception:
+        except Exception as exc:
             self._table_report = None
+            logger.warning("Could not pre-parse input table for drug filter summary.", exc_info=True)
+            set_widget_warning(self, f"Could not pre-parse input table: {exc}")
         if self._table_report is not None:
             self._set_status(format_table_report(self._table_report), ok=True)
         else:
