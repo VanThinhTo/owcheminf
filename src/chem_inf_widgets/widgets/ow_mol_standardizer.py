@@ -362,12 +362,13 @@ class OWMolStandardizer(OWWidget):
         mols: Sequence[ChemMol],
         cfg: StandardizeConfig,
         profile_key: str,
-    ) -> Tuple[Optional[Table], List[ChemMol], Optional[Table], Optional[Table], List[ChemMol], Optional[Table], List[ChemMol], Table, Table, int, int]:
+    ) -> Tuple[Optional[Table], List[ChemMol], Optional[Table], Optional[Table], List[ChemMol], Optional[Table], List[ChemMol], Table, Table, List[str], int, int]:
         std = MolStandardizer(cfg, profile=profile_key)
 
         out_mols: List[ChemMol] = []
         out_table: Optional[Table] = None
         report_rows: List[dict] = []
+        runtime_warnings: List[str] = []
 
         # 1) Standardize ChemMol list
         if mols:
@@ -479,7 +480,7 @@ class OWMolStandardizer(OWWidget):
 
                 # If no input molecules were provided, also emit ChemMol list from standardized SMILES
                 if not mols:
-                    out_mols = self._chemmols_from_smiles(std_smiles, logs)
+                    out_mols, runtime_warnings = self._chemmols_from_smiles(std_smiles, logs)
                     out_mols = self._annotate_standardization_curation_from_statuses(out_mols, ["ok"] * len(out_mols), std.profile)
 
         table_ok_indices = [int(r["row_index"]) - 1 for r in report_rows if r.get("source") == "table" and bool(r.get("ok"))]
@@ -551,7 +552,7 @@ class OWMolStandardizer(OWWidget):
         except Exception:
             logger.warning("Could not build standardization curation summary table.", exc_info=True)
             curation_table = None
-        return out_table, out_mols, modeling_table, qsar_ready_table, qsar_ready_mols, failed_table, failed_mols, report_table, curation_table, (0 if data is None else len(data)), len(out_mols)
+        return out_table, out_mols, modeling_table, qsar_ready_table, qsar_ready_mols, failed_table, failed_mols, report_table, curation_table, runtime_warnings, (0 if data is None else len(data)), len(out_mols)
 
     def _on_done(self, fut) -> None:
         try:
@@ -569,6 +570,7 @@ class OWMolStandardizer(OWWidget):
     @pyqtSlot(str)
     def _apply_error(self, msg: str) -> None:
         self._set_busy(False, format_failed_status(msg))
+        set_widget_warning(self, "")
         self.Outputs.modeling_data.send(None)
         self.Outputs.data.send(None)
         self.Outputs.molecules.send([])
@@ -582,7 +584,12 @@ class OWMolStandardizer(OWWidget):
     @pyqtSlot(object)
     def _apply_outputs(self, payload: object) -> None:
         try:
-            table, mols, modeling_table, qsar_table, qsar_mols, failed_table, failed_mols, report, curation, n_rows, n_mols = payload
+            runtime_warnings: List[str]
+            if len(payload) == 11:
+                table, mols, modeling_table, qsar_table, qsar_mols, failed_table, failed_mols, report, curation, n_rows, n_mols = payload
+                runtime_warnings = []
+            else:
+                table, mols, modeling_table, qsar_table, qsar_mols, failed_table, failed_mols, report, curation, runtime_warnings, n_rows, n_mols = payload
         except Exception as exc:
             self._apply_error(f"Could not unpack standardization outputs: {exc}")
             return
@@ -602,6 +609,18 @@ class OWMolStandardizer(OWWidget):
                 prefix="Done",
             )
         self._set_busy(False, status)
+        warning_messages: List[str] = []
+        input_warning = format_skip_warning(
+            0 if self._table_report is None else self._table_report.n_invalid,
+            subject="invalid input rows",
+            action="will produce empty standardized SMILES",
+        )
+        if input_warning:
+            warning_messages.append(input_warning)
+        runtime_warning = self._runtime_warning_message(runtime_warnings)
+        if runtime_warning:
+            warning_messages.append(runtime_warning)
+        set_widget_warning(self, " ".join(warning_messages))
         self.Outputs.modeling_data.send(modeling_table)
         self.Outputs.data.send(table)
         self.Outputs.molecules.send(mols)
@@ -969,10 +988,20 @@ class OWMolStandardizer(OWWidget):
             name="Standardization Report",
         )
 
-    def _chemmols_from_smiles(self, smiles: List[str], logs: List[str]) -> List[ChemMol]:
+    @staticmethod
+    def _runtime_warning_message(messages: Sequence[str]) -> str:
+        clean = [str(message or "").strip() for message in messages if str(message or "").strip()]
+        if not clean:
+            return ""
+        if len(clean) == 1:
+            return clean[0]
+        return f"{len(clean)} standardization warning(s). First: {clean[0]}"
+
+    def _chemmols_from_smiles(self, smiles: List[str], logs: List[str]) -> Tuple[List[ChemMol], List[str]]:
         from rdkit import Chem
 
         out: List[ChemMol] = []
+        warnings: List[str] = []
         for i, smi in enumerate(smiles):
             smi = (smi or "").strip()
             if not smi:
@@ -994,7 +1023,9 @@ class OWMolStandardizer(OWWidget):
                 from chem_inf_widgets.chemcore.molecule_contract import ensure_contract_props
 
                 ensure_contract_props(cm, row_index=i + 1, input_smiles=smi)
-            except Exception:
-                pass
+            except Exception as exc:
+                message = f"Could not attach contract metadata for standardized molecule row {i + 1}: {exc}"
+                logger.warning(message, exc_info=True)
+                warnings.append(message)
             out.append(cm)
-        return out
+        return out, warnings
