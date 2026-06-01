@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import List, Optional
 
@@ -27,6 +28,8 @@ from chem_inf_widgets.widgets.ui_helpers import (
     set_widget_information,
     set_widget_warning,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OWSdfWriter(OWWidget, ConcurrentWidgetMixin):
@@ -102,6 +105,7 @@ class OWSdfWriter(OWWidget, ConcurrentWidgetMixin):
     def _refresh_props(self) -> None:
         self.prop_list.clear()
         self._available_props.clear()
+        set_widget_warning(self, "")
 
         if self._mols:
             keys = set()
@@ -112,8 +116,10 @@ class OWSdfWriter(OWWidget, ConcurrentWidgetMixin):
         elif self._data is not None:
             try:
                 _mols, self._table_report = table_to_chemmols_with_report(self._data)
-            except Exception:
+            except Exception as exc:
                 self._table_report = None
+                logger.warning("Could not pre-parse input table for SDF writer summary.", exc_info=True)
+                set_widget_warning(self, f"Could not pre-parse input table: {exc}")
             # candidates = all metas/attrs except Name/SMILES
             all_vars = list(self._data.domain.metas) + list(self._data.domain.attributes) + list(self._data.domain.class_vars)
             exclude = {"name", "smiles"}
