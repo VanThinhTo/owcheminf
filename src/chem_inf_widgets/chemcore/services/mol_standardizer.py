@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 import copy
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -22,6 +22,7 @@ from chem_inf_widgets.chemcore.molecule_contract import (
     ensure_contract_props,
     set_dropped_reason,
 )
+from chem_inf_widgets.chemcore.result import ServiceIssue
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_canonical_smiles, safe_mol_from_smiles
 
 
@@ -50,6 +51,7 @@ class StandardizeResult:
     output_smiles: str
     log: str
     mol: Optional[Chem.Mol]
+    issues: list[ServiceIssue] = field(default_factory=list)
 
 
 STANDARDIZATION_PRESETS: Dict[str, StandardizeConfig] = {
@@ -261,7 +263,7 @@ class MolStandardizer:
                 set_dropped_reason(audited, "standardization_failed")
             return audited
 
-        for cm in mols:
+        for row_index, cm in enumerate(mols, start=1):
             in_smi = ""
             try:
                 v = cm.get_prop(smiles_prop)
@@ -280,7 +282,6 @@ class MolStandardizer:
                         in_smi = ""
 
             res = self.standardize_smiles(in_smi)
-            results.append(res)
 
             # build new ChemMol; never mutate the input object in-place if possible
             try:
@@ -291,8 +292,13 @@ class MolStandardizer:
 
             try:
                 new_cm = _write_standardization_audit(new_cm, in_smi, res)
-            except Exception:
-                pass
+            except Exception as exc:
+                res = self._append_issue(
+                    res,
+                    code="standardization_audit_write_failed",
+                    message=f"Could not write standardization audit fields: {exc}",
+                    row_index=row_index,
+                )
 
             # update the structure if possible
             if res.ok and res.mol is not None:
@@ -306,11 +312,17 @@ class MolStandardizer:
                         new_cm = _write_standardization_audit(new_cm, in_smi, res)
                     elif hasattr(new_cm, "set_rdkit"):
                         new_cm.set_rdkit(res.mol)
-                except Exception:
+                except Exception as exc:
                     # keep as-is if structure update fails
-                    pass
+                    res = self._append_issue(
+                        res,
+                        code="standardized_structure_update_failed",
+                        message=f"Could not update standardized ChemMol structure: {exc}",
+                        row_index=row_index,
+                    )
 
             out_mols.append(ensure_contract_props(new_cm, input_smiles=in_smi))
+            results.append(res)
 
         return out_mols, results
 
@@ -357,3 +369,24 @@ class MolStandardizer:
         if b != a:
             log.append(f"{name}: {b} → {a}")
         return mol_after, log
+
+    @staticmethod
+    def _append_issue(
+        result: StandardizeResult,
+        *,
+        code: str,
+        message: str,
+        row_index: int,
+    ) -> StandardizeResult:
+        issue = ServiceIssue(
+            code=code,
+            message=message,
+            severity="warning",
+            row_index=row_index,
+            details={"input_smiles": result.input_smiles},
+        )
+        warning_line = f"Warning: {message}"
+        log = result.log if warning_line in result.log else "\n".join(
+            part for part in [result.log, warning_line] if part
+        )
+        return replace(result, log=log, issues=[*result.issues, issue])
