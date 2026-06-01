@@ -23,7 +23,12 @@ from chem_inf_widgets.chemcore.services.molecule_import_service import (
     import_summary_as_rows,
 )
 from chem_inf_widgets.chemcore.services.report_table_utils import report_rows_to_table, summary_rows_to_table
-from chem_inf_widgets.widgets.ui_helpers import format_done_status, format_failed_status, format_no_input_status
+from chem_inf_widgets.widgets.ui_helpers import (
+    format_done_status,
+    format_failed_status,
+    format_no_input_status,
+    set_widget_warning,
+)
 
 
 class OWMoleculeImportHub(OWWidget):
@@ -211,6 +216,7 @@ class OWMoleculeImportHub(OWWidget):
     @pyqtSlot(str)
     def _apply_error(self, msg: str) -> None:
         self._set_busy(False, format_failed_status(msg))
+        set_widget_warning(self, "")
         self._send_empty()
 
     @pyqtSlot(object)
@@ -225,6 +231,7 @@ class OWMoleculeImportHub(OWWidget):
             prefix="Import complete",
         ))
         self.roles_label.setText(format_domain_role_summary(data.domain))
+        set_widget_warning(self, self._service_issue_warning(result))
         self.Outputs.data.send(data)
         self.Outputs.molecules.send(mols)
         self.Outputs.accepted_data.send(accepted_data)
@@ -236,6 +243,7 @@ class OWMoleculeImportHub(OWWidget):
         self.Outputs.curation_summary.send(curation)
 
     def _send_empty(self) -> None:
+        set_widget_warning(self, "")
         self.Outputs.data.send(None)
         self.Outputs.molecules.send([])
         self.Outputs.accepted_data.send(None)
@@ -247,6 +255,15 @@ class OWMoleculeImportHub(OWWidget):
         self.Outputs.curation_summary.send(None)
         if hasattr(self, "roles_label"):
             self.roles_label.setText("Import a file to inspect attributes, class variables, and metas.")
+
+    @staticmethod
+    def _service_issue_warning(result: MoleculeImportResult) -> str:
+        issues = list(getattr(result, "issues", []) or [])
+        if not issues:
+            return ""
+        first = issues[0]
+        row_text = f" Row {first.row_index}." if first.row_index is not None else ""
+        return f"{len(issues)} import warning(s).{row_text} {first.message}".strip()
 
     @staticmethod
     def _accepted_molecules(result: MoleculeImportResult) -> List[ChemMol]:
