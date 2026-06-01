@@ -60,7 +60,7 @@ def _table_to_df(data: Table | None) -> pd.DataFrame | None:
             else:
                 try:
                     cols[var.name] = col.astype(float)
-                except Exception:
+                except (TypeError, ValueError):
                     cols[var.name] = [str(v) for v in col]
     return pd.DataFrame(cols, index=range(n))
 
