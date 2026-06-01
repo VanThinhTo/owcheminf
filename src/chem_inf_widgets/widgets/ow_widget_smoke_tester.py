@@ -362,7 +362,35 @@ def run_core_workflow_smoke(
         std_widget.set_data(qc_input)
         std_payload = std_widget._run_background(qc_input, [], std_widget._make_config(), std_widget._active_profile_key())
         std_widget._apply_outputs(std_payload)
-        std_table, std_mols, _modeling_table, _qsar_table, _qsar_mols, failed_table, failed_mols, _std_report, _std_curation, _n_rows, _n_mols = std_payload
+        if len(std_payload) == 11:
+            (
+                std_table,
+                std_mols,
+                _modeling_table,
+                _qsar_table,
+                _qsar_mols,
+                failed_table,
+                failed_mols,
+                _std_report,
+                _std_curation,
+                _n_rows,
+                _n_mols,
+            ) = std_payload
+        else:
+            (
+                std_table,
+                std_mols,
+                _modeling_table,
+                _qsar_table,
+                _qsar_mols,
+                failed_table,
+                failed_mols,
+                _std_report,
+                _std_curation,
+                _runtime_warnings,
+                _n_rows,
+                _n_mols,
+            ) = std_payload
         std_meta_names = _meta_names(std_table)
         _record(
             WorkflowSmokeStage(
