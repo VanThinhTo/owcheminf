@@ -282,6 +282,7 @@ class OWMoleculeQCDashboard(OWWidget):
     @pyqtSlot(str)
     def _apply_error(self, msg: str) -> None:
         self._set_busy(False, format_failed_status(msg))
+        set_widget_warning(self, "")
         self._send_empty()
 
     @pyqtSlot(object)
@@ -299,6 +300,7 @@ class OWMoleculeQCDashboard(OWWidget):
                 prefix="QC complete",
             ),
         )
+        set_widget_warning(self, self._service_issue_warning(result))
         self.Outputs.modeling_data.send(modeling_data)
         self.Outputs.annotated_data.send(annotated_data)
         self.Outputs.clean_data.send(clean_data)
@@ -325,6 +327,15 @@ class OWMoleculeQCDashboard(OWWidget):
         self.Outputs.clean_molecules.send([])
         self.Outputs.problem_molecules.send([])
         self.Outputs.rejected_molecules.send([])
+
+    @staticmethod
+    def _service_issue_warning(result: MoleculeQCResult) -> str:
+        issues = list(getattr(result, "issues", []) or [])
+        if not issues:
+            return ""
+        first = issues[0]
+        row_text = f" Row {first.row_index}." if first.row_index is not None else ""
+        return f"{len(issues)} QC backend warning(s).{row_text} {first.message}".strip()
 
 
     @staticmethod
