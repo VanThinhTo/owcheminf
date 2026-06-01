@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -9,6 +9,7 @@ from rdkit import Chem
 from rdkit.Chem import Descriptors
 
 from chem_inf_widgets.chemcore.mol import ChemMol
+from chem_inf_widgets.chemcore.result import ServiceIssue
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
 
 
@@ -26,6 +27,12 @@ class RdkitDescriptorPreset:
     description: str
     categories: Tuple[str, ...]
     descriptors: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RdkitDescriptorComputeResult:
+    frame: pd.DataFrame
+    issues: List[ServiceIssue] = field(default_factory=list)
 
 
 RDKIT_DESCRIPTOR_CATEGORIES: Dict[str, Tuple[str, ...]] = {
@@ -157,19 +164,42 @@ class RdkitDescriptorService:
         return [info.name for info in self.list_descriptors() if info.category in categories_set]
 
     def compute(self, mols: Sequence[Chem.Mol], selected_descriptor_names: Sequence[str]) -> pd.DataFrame:
+        return self.compute_with_issues(mols, selected_descriptor_names).frame
+
+    def compute_with_issues(
+        self,
+        mols: Sequence[Chem.Mol],
+        selected_descriptor_names: Sequence[str],
+        *,
+        row_indices: Optional[Sequence[int]] = None,
+    ) -> RdkitDescriptorComputeResult:
         selected = [name for name in selected_descriptor_names if name in self._functions]
         rows: List[Dict[str, float]] = []
-        for mol in mols:
+        issues: List[ServiceIssue] = []
+        for idx, mol in enumerate(mols):
             row: Dict[str, float] = {}
             for name in selected:
                 func = self._functions[name]
                 try:
                     value = func(mol)
                     row[name] = float(value) if value is not None else np.nan
-                except Exception:
+                except Exception as exc:
                     row[name] = np.nan
+                    source_row = row_indices[idx] + 1 if row_indices is not None and idx < len(row_indices) else idx + 1
+                    issues.append(
+                        ServiceIssue(
+                            code="rdkit_descriptor_computation_failed",
+                            message=f"RDKit descriptor '{name}' failed: {exc}",
+                            severity="warning",
+                            row_index=source_row,
+                            details={"descriptor_name": name},
+                        )
+                    )
             rows.append(row)
-        return pd.DataFrame(rows, columns=selected)
+        return RdkitDescriptorComputeResult(
+            frame=pd.DataFrame(rows, columns=selected),
+            issues=issues,
+        )
 
     @staticmethod
     def smiles_to_mols(smiles: Sequence[str]) -> Tuple[List[Optional[Chem.Mol]], List[int]]:

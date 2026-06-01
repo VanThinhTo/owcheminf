@@ -396,10 +396,12 @@ class OWRdkitDescriptors(OWWidget):
         if not valid_mols:
             self.Outputs.data.send(base_table)
             self.Outputs.molecules.send(self._molecules)
+            set_widget_warning(self, "")
             self._set_status("No valid molecules for RDKit descriptor calculation.")
             return
 
-        df_valid = self._service.compute(valid_mols, selected)
+        result = self._service.compute_with_issues(valid_mols, selected, row_indices=valid_idx)
+        df_valid = result.frame
         df_full = self._service.df_to_full_length(df_valid, valid_idx, n_total)
         out_table = self._attach_df_to_table(base_table, df_full, selected)
         out_mols = list(self._molecules)
@@ -415,10 +417,26 @@ class OWRdkitDescriptors(OWWidget):
                         chem_mol.set_prop(col, value)
 
         invalid = n_total - len(valid_idx)
-        set_widget_warning(self, format_skip_warning(invalid, subject="input rows", action="were skipped during RDKit descriptor computation"))
+        warnings: List[str] = []
+        skipped_warning = format_skip_warning(invalid, subject="input rows", action="were skipped during RDKit descriptor computation")
+        if skipped_warning:
+            warnings.append(skipped_warning)
+        issue_warning = self._service_issue_warning(result.issues)
+        if issue_warning:
+            warnings.append(issue_warning)
+        set_widget_warning(self, " ".join(warnings))
         self._set_status(format_done_status(f"rows={n_total}", f"descriptors={len(selected)}", f"invalid={invalid}"))
         self.Outputs.data.send(out_table)
         self.Outputs.molecules.send(out_mols)
+
+    @staticmethod
+    def _service_issue_warning(issues: Sequence[object]) -> str:
+        issue_list = list(issues or [])
+        if not issue_list:
+            return ""
+        first = issue_list[0]
+        row_text = f" Row {getattr(first, 'row_index', None)}." if getattr(first, "row_index", None) is not None else ""
+        return f"{len(issue_list)} descriptor warning(s).{row_text} {getattr(first, 'message', '')}".strip()
 
     def _attach_df_to_table(self, base: Optional[Table], df_full, selected: Sequence[str]) -> Table:
         selected = [name for name in _unique_preserve_order(selected) if name in df_full.columns]
