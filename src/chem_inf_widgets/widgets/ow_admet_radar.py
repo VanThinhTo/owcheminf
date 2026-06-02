@@ -1,8 +1,19 @@
 from __future__ import annotations
 
+import math
 from html import escape
 
-from AnyQt.QtWidgets import QLabel, QTableWidget, QTableWidgetItem, QTabWidget, QTextBrowser
+import pyqtgraph as pg
+from AnyQt.QtCore import Qt
+from AnyQt.QtWidgets import (
+    QLabel,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
 from Orange.data import Table
 from Orange.widgets import gui
 from Orange.widgets.settings import Setting
@@ -25,6 +36,17 @@ from chem_inf_widgets.widgets.ui_helpers import (
     format_no_input_status,
 )
 from chem_inf_widgets.widgets.utils import send_output_values, show_service_issues
+
+_PROFILE_METRICS = [
+    ("Lipinski", lambda record: 1.0 if record.lipinski_pass else 0.0),
+    ("Veber", lambda record: 1.0 if record.veber_pass else 0.0),
+    ("Ghose", lambda record: 1.0 if record.ghose_pass else 0.0),
+    ("Egan", lambda record: 1.0 if record.egan_pass else 0.0),
+    ("Muegge", lambda record: 1.0 if record.muegge_pass else 0.0),
+    ("PAINS clean", lambda record: 0.0 if record.pains_match else 1.0),
+    ("Brenk clean", lambda record: 0.0 if record.brenk_match else 1.0),
+    ("QED", lambda record: max(0.0, min(float(record.qed_score), 1.0))),
+]
 
 
 def _count_card(label: str, value: int) -> str:
@@ -104,6 +126,55 @@ def _set_table_rows(widget: QTableWidget, rows: list[dict[str, object]]) -> None
     widget.resizeColumnsToContents()
 
 
+def _styled_plot(title: str = "") -> pg.PlotWidget:
+    plot_widget = pg.PlotWidget(title=title)
+    plot_widget.setBackground("#FFFFFF")
+    plot_widget.hideAxis("left")
+    plot_widget.hideAxis("bottom")
+    plot_widget.setMenuEnabled(False)
+    plot_widget.setMouseEnabled(x=False, y=False)
+    return plot_widget
+
+
+def _profile_values(record) -> list[float]:
+    return [getter(record) for _label, getter in _PROFILE_METRICS]
+
+
+def _profile_mean(records) -> list[float]:
+    if not records:
+        return [0.0] * len(_PROFILE_METRICS)
+    totals = [0.0] * len(_PROFILE_METRICS)
+    for record in records:
+        for index, value in enumerate(_profile_values(record)):
+            totals[index] += float(value)
+    return [value / len(records) for value in totals]
+
+
+def _radar_points(values: list[float], *, radius: float = 1.0) -> tuple[list[float], list[float]]:
+    if not values:
+        return [], []
+
+    xs: list[float] = []
+    ys: list[float] = []
+    n_values = len(values)
+    for index, value in enumerate(values):
+        angle = (2.0 * 3.141592653589793 * index / n_values) - (3.141592653589793 / 2.0)
+        score = max(0.0, min(float(value), 1.0)) * radius
+        xs.append(score * math.cos(angle))
+        ys.append(score * math.sin(angle))
+    xs.append(xs[0])
+    ys.append(ys[0])
+    return xs, ys
+
+
+def _profile_name(record) -> str:
+    if record.name:
+        return str(record.name)
+    if record.input_smiles:
+        return str(record.input_smiles)
+    return f"row {record.row_index}"
+
+
 class OWAdmetRadar(OWWidget):
     name = "ADMET Radar"
     description = "Summarize drug-likeness rules and structural alerts for molecular datasets."
@@ -128,6 +199,8 @@ class OWAdmetRadar(OWWidget):
         super().__init__()
         self.data: Table | None = None
         self._result: AdmetRadarResult | None = None
+        self._flagged_records = []
+        self._profile_record = None
         self._build_ui()
         self._set_status("Waiting for data.", ok=True)
 
@@ -171,7 +244,19 @@ class OWAdmetRadar(OWWidget):
         tabs.addTab(self._summary_table_widget, "Rule Summary")
 
         self._flagged_table_widget = QTableWidget()
+        self._flagged_table_widget.setSelectionBehavior(QTableWidget.SelectRows)
+        self._flagged_table_widget.setSelectionMode(QTableWidget.SingleSelection)
+        self._flagged_table_widget.itemSelectionChanged.connect(self._on_flagged_selection_changed)
         tabs.addTab(self._flagged_table_widget, "Flagged Compounds")
+
+        profile_page = QWidget()
+        profile_layout = QVBoxLayout(profile_page)
+        self._profile_label = QLabel("Select a flagged compound to inspect its ADMET rule profile.")
+        self._profile_label.setWordWrap(True)
+        profile_layout.addWidget(self._profile_label)
+        self._profile_plot = _styled_plot("Rule profile (0-1)")
+        profile_layout.addWidget(self._profile_plot)
+        tabs.addTab(profile_page, "Profile Plot")
 
     def _set_status(self, text: str, ok: bool = False) -> None:
         color = "#027A48" if ok else "#475467"
@@ -202,6 +287,8 @@ class OWAdmetRadar(OWWidget):
 
     def _send_empty(self) -> None:
         self._result = None
+        self._flagged_records = []
+        self._profile_record = None
         clear_widget_messages(self)
         self._report_browser.clear()
         self._summary_table_widget.clear()
@@ -210,11 +297,88 @@ class OWAdmetRadar(OWWidget):
         self._flagged_table_widget.clear()
         self._flagged_table_widget.setRowCount(0)
         self._flagged_table_widget.setColumnCount(0)
+        self._profile_plot.clear()
+        self._profile_label.setText("Select a flagged compound to inspect its ADMET rule profile.")
         send_output_values(
             (self.Outputs.admet_table, None),
             (self.Outputs.flagged_compounds, None),
             (self.Outputs.summary_table, None),
         )
+
+    def _render_profile_plot(self) -> None:
+        self._profile_plot.clear()
+        if self._result is None or self._profile_record is None:
+            self._profile_label.setText("Select a flagged compound to inspect its ADMET rule profile.")
+            return
+
+        plot_item = self._profile_plot.getPlotItem()
+        grid_pen = pg.mkPen("#CBD5E1", width=1)
+        axis_pen = pg.mkPen("#94A3B8", width=1)
+        baseline_pen = pg.mkPen("#64748B", width=2, style=Qt.DashLine)
+        selected_pen = pg.mkPen("#0F766E", width=3)
+        selected_symbol_brush = pg.mkBrush("#0F766E")
+
+        for level in (0.25, 0.5, 0.75, 1.0):
+            x_grid, y_grid = _radar_points([level] * len(_PROFILE_METRICS))
+            plot_item.addItem(pg.PlotDataItem(x_grid, y_grid, pen=grid_pen))
+
+        axis_x, axis_y = _radar_points([1.0] * len(_PROFILE_METRICS))
+        for index in range(len(_PROFILE_METRICS)):
+            plot_item.addItem(
+                pg.PlotDataItem([0.0, axis_x[index]], [0.0, axis_y[index]], pen=axis_pen)
+            )
+
+        for index, (label, _getter) in enumerate(_PROFILE_METRICS):
+            label_x = axis_x[index] * 1.14
+            label_y = axis_y[index] * 1.14
+            text = pg.TextItem(label, color="#334155", anchor=(0.5, 0.5))
+            text.setPos(label_x, label_y)
+            plot_item.addItem(text)
+
+        valid_records = [record for record in self._result.records if record.valid_molecule]
+        mean_values = _profile_mean(valid_records)
+        selected_values = _profile_values(self._profile_record)
+        mean_x, mean_y = _radar_points(mean_values)
+        selected_x, selected_y = _radar_points(selected_values)
+
+        plot_item.addItem(pg.PlotDataItem(mean_x, mean_y, pen=baseline_pen))
+        plot_item.addItem(
+            pg.PlotDataItem(
+                selected_x,
+                selected_y,
+                pen=selected_pen,
+                symbol="o",
+                symbolSize=8,
+                symbolBrush=selected_symbol_brush,
+                symbolPen=selected_pen,
+            )
+        )
+        plot_item.setXRange(-1.35, 1.35, padding=0.0)
+        plot_item.setYRange(-1.25, 1.25, padding=0.0)
+
+        record = self._profile_record
+        self._profile_label.setText(
+            "Selected: "
+            f"{_profile_name(record)} | "
+            f"QED={record.qed_score:.2f}, "
+            f"MW={record.molecular_weight:.1f}, "
+            f"LogP={record.logp:.2f}, "
+            f"PAINS={'yes' if record.pains_match else 'no'}, "
+            f"Brenk={'yes' if record.brenk_match else 'no'}"
+        )
+
+    def _on_flagged_selection_changed(self) -> None:
+        if not self._flagged_records:
+            return
+        row_index = self._flagged_table_widget.currentRow()
+        if row_index < 0:
+            selected_ranges = self._flagged_table_widget.selectedRanges()
+            if not selected_ranges:
+                return
+            row_index = selected_ranges[0].topRow()
+        if 0 <= row_index < len(self._flagged_records):
+            self._profile_record = self._flagged_records[row_index]
+            self._render_profile_plot()
 
     def commit(self) -> None:
         if self.data is None:
@@ -237,7 +401,30 @@ class OWAdmetRadar(OWWidget):
 
         self._report_browser.setHtml(_render_report_html(result))
         _set_table_rows(self._summary_table_widget, admet_summary_as_rows(result))
-        _set_table_rows(self._flagged_table_widget, admet_flagged_records_as_dicts(result)[:100])
+        flagged_rows = admet_flagged_records_as_dicts(result)[:100]
+        _set_table_rows(self._flagged_table_widget, flagged_rows)
+        self._flagged_records = [
+            record
+            for record in result.records
+            if (
+                not record.valid_molecule
+                or not record.lipinski_pass
+                or not record.veber_pass
+                or not record.ghose_pass
+                or not record.egan_pass
+                or not record.muegge_pass
+                or record.pains_match
+                or record.brenk_match
+                or bool(record.issue_codes)
+            )
+        ][:100]
+        if self._flagged_records:
+            self._flagged_table_widget.selectRow(0)
+            self._profile_record = self._flagged_records[0]
+        else:
+            valid_records = [record for record in result.records if record.valid_molecule]
+            self._profile_record = valid_records[0] if valid_records else None
+        self._render_profile_plot()
 
         show_service_issues(self, result.issues, subject="admet radar", issue_label="issue")
         self._set_status(

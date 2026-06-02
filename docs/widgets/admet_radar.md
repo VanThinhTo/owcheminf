@@ -17,6 +17,7 @@ The current version is intentionally backend-first:
 - reports `QED`
 - optionally reports `PAINS` and `Brenk` alerts
 - exports Orange tables for downstream filtering and reporting
+- includes a simple profile plot for flagged compounds vs the dataset-wide valid-molecule mean
 
 ## Input
 
@@ -32,5 +33,5 @@ The current version is intentionally backend-first:
 ## Notes
 
 - This widget is currently in `Cheminf - Development`.
-- The first version focuses on summary/report outputs and does not yet include a true radar chart visualization.
+- The current visualization is a lightweight rule-profile plot for selected flagged compounds.
 - It pairs naturally with `Dataset Profiler`, `Drug Filter`, and descriptor widgets.

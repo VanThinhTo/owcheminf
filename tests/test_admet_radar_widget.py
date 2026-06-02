@@ -70,7 +70,26 @@ def test_admet_radar_widget_runs_and_populates_views():
     assert "ADMET Radar" in widget._report_browser.toHtml()
     assert widget._summary_table_widget.rowCount() >= 1
     assert widget._flagged_table_widget.rowCount() >= 1
+    assert "Selected:" in widget._profile_label.text()
     assert "Done:" in widget._status_label.text()
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_admet_radar_widget_updates_profile_for_selected_row():
+    widget = OWAdmetRadar()
+    widget.set_data(_demo_table())
+    _APP.processEvents()
+
+    assert widget._flagged_table_widget.rowCount() >= 2
+    initial_label = widget._profile_label.text()
+    widget._flagged_table_widget.setCurrentCell(1, 0)
+    widget._flagged_table_widget.selectRow(1)
+    _APP.processEvents()
+
+    assert "Selected:" in widget._profile_label.text()
+    assert widget._profile_label.text() != initial_label
 
     widget.onDeleteWidget()
     widget.close()
