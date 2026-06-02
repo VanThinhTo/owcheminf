@@ -1,26 +1,41 @@
 from __future__ import annotations
 
-from typing import List, Optional
-
 import numpy as np
 from AnyQt.QtCore import Qt
-from AnyQt.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget
-
-from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+from AnyQt.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QLabel,
+    QPushButton,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
+from Orange.data import (
+    ContinuousVariable,
+    DiscreteVariable,
+    Domain,
+    StringVariable,
+    Table,
+)
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Output, OWWidget
 
-from chem_inf_widgets.chemcore.mol import ChemMol
-from chem_inf_widgets.chemcore.services.scaffold_splitter_service import split_by_scaffold
+from chem_inf_widgets.chemcore.services.splitter_service import SplitConfig, split_dataset
 from chem_inf_widgets.widgets.ui_helpers import (
+    clear_widget_messages,
     format_done_status,
+    format_failed_status,
     format_loaded_status,
     format_no_input_status,
     format_waiting_status,
 )
+from chem_inf_widgets.widgets.utils import send_output_values, show_service_issues
 
 
-def _find_smiles_vars(data: Table) -> List[StringVariable]:
+def _find_smiles_vars(data: Table) -> list[StringVariable]:
     variables = list(data.domain.metas) + list(data.domain.attributes) + list(data.domain.class_vars)
     preferred = [
         variable
@@ -28,20 +43,27 @@ def _find_smiles_vars(data: Table) -> List[StringVariable]:
         if isinstance(variable, StringVariable) and variable.name.strip().lower() in {"smiles", "canonical_smiles", "smile"}
     ]
     if preferred:
-        return preferred + [variable for variable in variables if isinstance(variable, StringVariable) and variable not in preferred]
+        return [
+            *preferred,
+            *[variable for variable in variables if isinstance(variable, StringVariable) and variable not in preferred],
+        ]
     return [variable for variable in variables if isinstance(variable, StringVariable)]
 
 
-def _table_smiles(data: Table, var_name: str) -> List[str]:
-    variable = next((var for var in _find_smiles_vars(data) if var.name == var_name), None)
-    if variable is None:
-        raise ValueError("No SMILES column selected.")
-    return ["" if value is None else str(value).strip() for value in data.get_column(variable)]
+def _target_candidate_vars(data: Table) -> list:
+    variables = list(data.domain.class_vars) + list(data.domain.attributes) + list(data.domain.metas)
+    out = []
+    seen = set()
+    for variable in variables:
+        if isinstance(variable, (ContinuousVariable, DiscreteVariable)) and variable.name not in seen:
+            out.append(variable)
+            seen.add(variable.name)
+    return out
 
 
 class OWScaffoldSplitter(OWWidget):
     name = "Scaffold Splitter"
-    description = "Split a dataset into train/validation/test partitions by scaffold groups."
+    description = "Split a dataset into train/validation/test partitions using scaffold, random, or activity-stratified logic."
     icon = "icons/analysis/owscaffoldsplitterwidget.svg"
     priority = 139
 
@@ -55,6 +77,8 @@ class OWScaffoldSplitter(OWWidget):
         summary = Output("Split Summary", Table)
 
     smiles_var_name: str = Setting("")
+    target_var_name: str = Setting("")
+    method_idx: int = Setting(0)
     scaffold_kind_idx: int = Setting(0)
     train_fraction: float = Setting(0.7)
     validation_fraction: float = Setting(0.15)
@@ -63,10 +87,11 @@ class OWScaffoldSplitter(OWWidget):
     auto_run: bool = Setting(True)
 
     _KINDS = [("Murcko", "murcko"), ("Generic Murcko", "generic")]
+    _METHODS = [("Scaffold", "scaffold"), ("Random", "random"), ("Activity-stratified", "activity_stratified")]
 
     def __init__(self) -> None:
         super().__init__()
-        self.data: Optional[Table] = None
+        self.data: Table | None = None
         self.mainArea.hide()
 
         root = QWidget(self.controlArea)
@@ -85,6 +110,16 @@ class OWScaffoldSplitter(OWWidget):
         self.smiles_combo = QComboBox()
         self.smiles_combo.currentTextChanged.connect(self._on_smiles_changed)
         form.addRow("SMILES column:", self.smiles_combo)
+
+        self.method_combo = QComboBox()
+        self.method_combo.addItems([label for label, _method in self._METHODS])
+        self.method_combo.setCurrentIndex(int(self.method_idx))
+        self.method_combo.currentIndexChanged.connect(self._on_method_changed)
+        form.addRow("Split method:", self.method_combo)
+
+        self.target_combo = QComboBox()
+        self.target_combo.currentTextChanged.connect(self._on_target_changed)
+        form.addRow("Target column:", self.target_combo)
 
         self.kind_combo = QComboBox()
         self.kind_combo.addItems([label for label, _kind in self._KINDS])
@@ -125,15 +160,18 @@ class OWScaffoldSplitter(OWWidget):
         self.auto_run_check.toggled.connect(self._on_auto_run_toggled)
         layout.addWidget(self.auto_run_check)
 
-        run_button = QPushButton("Create scaffold split")
+        run_button = QPushButton("Create split")
         run_button.clicked.connect(self.commit)
         layout.addWidget(run_button)
         layout.addStretch(1)
 
     @Inputs.data
-    def set_data(self, data: Optional[Table]) -> None:
+    def set_data(self, data: Table | None) -> None:
         self.data = data
+        clear_widget_messages(self)
         self._populate_smiles_combo()
+        self._populate_target_combo()
+        self._update_control_visibility()
         self.status_label.setText(
             format_loaded_status(len(data), item_label="rows") if data is not None else format_waiting_status()
         )
@@ -157,8 +195,45 @@ class OWScaffoldSplitter(OWWidget):
         finally:
             self.smiles_combo.blockSignals(False)
 
+    def _populate_target_combo(self) -> None:
+        self.target_combo.blockSignals(True)
+        try:
+            self.target_combo.clear()
+            if self.data is None:
+                return
+            target_vars = _target_candidate_vars(self.data)
+            self.target_combo.addItems([variable.name for variable in target_vars])
+            if target_vars:
+                names = [variable.name for variable in target_vars]
+                if self.target_var_name in names:
+                    self.target_combo.setCurrentText(self.target_var_name)
+                else:
+                    self.target_var_name = names[0]
+                    self.target_combo.setCurrentText(self.target_var_name)
+            else:
+                self.target_var_name = ""
+        finally:
+            self.target_combo.blockSignals(False)
+
+    def _update_control_visibility(self) -> None:
+        method = self._METHODS[int(self.method_idx)][1]
+        is_scaffold = method == "scaffold"
+        is_stratified = method == "activity_stratified"
+        self.smiles_combo.setEnabled(is_scaffold)
+        self.kind_combo.setEnabled(is_scaffold)
+        self.target_combo.setEnabled(is_stratified)
+
     def _on_smiles_changed(self, text: str) -> None:
         self.smiles_var_name = text
+        self._maybe_autorun()
+
+    def _on_method_changed(self, index: int) -> None:
+        self.method_idx = int(index)
+        self._update_control_visibility()
+        self._maybe_autorun()
+
+    def _on_target_changed(self, text: str) -> None:
+        self.target_var_name = text
         self._maybe_autorun()
 
     def _on_kind_changed(self, index: int) -> None:
@@ -191,33 +266,49 @@ class OWScaffoldSplitter(OWWidget):
 
     def commit(self) -> None:
         if self.data is None or len(self.data) == 0:
-            self.Outputs.train_data.send(None)
-            self.Outputs.validation_data.send(None)
-            self.Outputs.test_data.send(None)
-            self.Outputs.summary.send(None)
+            send_output_values(
+                (self.Outputs.train_data, None),
+                (self.Outputs.validation_data, None),
+                (self.Outputs.test_data, None),
+                (self.Outputs.summary, None),
+            )
             self.status_label.setText(format_no_input_status("input data"))
             return
 
-        smiles = _table_smiles(self.data, self.smiles_var_name)
-        kind = self._KINDS[self.scaffold_kind_idx][1]
-        result = split_by_scaffold(
-            smiles,
-            train_fraction=float(self.train_fraction),
-            validation_fraction=float(self.validation_fraction),
-            test_fraction=float(self.test_fraction),
-            scaffold_kind=kind,
-            random_seed=int(self.random_seed),
+        clear_widget_messages(self)
+        result = split_dataset(
+            self.data,
+            SplitConfig(
+                method=self._METHODS[int(self.method_idx)][1],
+                test_size=float(self.test_fraction),
+                validation_size=float(self.validation_fraction),
+                random_state=int(self.random_seed),
+                target_column=self.target_var_name or None,
+                scaffold_kind=self._KINDS[int(self.scaffold_kind_idx)][1],
+            ),
         )
-        split_map = {assignment.index: assignment.split for assignment in result.assignments}
 
-        train_idx = [index for index, split in split_map.items() if split == "train"]
-        val_idx = [index for index, split in split_map.items() if split == "validation"]
-        test_idx = [index for index, split in split_map.items() if split == "test"]
+        show_service_issues(self, result.issues, subject="splitter")
+        if any(issue.severity == "error" for issue in result.issues):
+            send_output_values(
+                (self.Outputs.train_data, None),
+                (self.Outputs.validation_data, None),
+                (self.Outputs.test_data, None),
+                (self.Outputs.summary, None),
+            )
+            self.status_label.setText(format_failed_status(result.issues[0].message))
+            return
 
-        self.Outputs.train_data.send(self.data[train_idx] if train_idx else self.data[:0])
-        self.Outputs.validation_data.send(self.data[val_idx] if val_idx else self.data[:0])
-        self.Outputs.test_data.send(self.data[test_idx] if test_idx else self.data[:0])
-        self.Outputs.summary.send(self._summary_table(result))
+        train_idx = result.train_indices
+        val_idx = result.validation_indices
+        test_idx = result.test_indices
+
+        send_output_values(
+            (self.Outputs.train_data, self.data[train_idx] if train_idx else self.data[:0]),
+            (self.Outputs.validation_data, self.data[val_idx] if val_idx else self.data[:0]),
+            (self.Outputs.test_data, self.data[test_idx] if test_idx else self.data[:0]),
+            (self.Outputs.summary, self._summary_table(result)),
+        )
         self.status_label.setText(
             format_done_status(
                 f"train={len(train_idx)}",
@@ -231,6 +322,16 @@ class OWScaffoldSplitter(OWWidget):
         count_var = ContinuousVariable("Count")
         fraction_var = ContinuousVariable("Fraction")
         domain = Domain([count_var, fraction_var], metas=[split_var])
-        X = np.array([[row.count, row.fraction] for row in result.summaries], dtype=float)
-        metas = np.array([[row.split] for row in result.summaries], dtype=object)
+        n_rows = 0 if self.data is None else len(self.data)
+        total = max(n_rows, 1)
+        assigned = set(result.train_indices) | set(result.validation_indices) | set(result.test_indices)
+        rows = [
+            ("train", len(result.train_indices)),
+            ("validation", len(result.validation_indices)),
+            ("test", len(result.test_indices)),
+        ]
+        if len(assigned) < n_rows:
+            rows.append(("unassigned", n_rows - len(assigned)))
+        X = np.array([[count, round(count / total, 4)] for _name, count in rows], dtype=float)
+        metas = np.array([[name] for name, _count in rows], dtype=object)
         return Table.from_numpy(domain, X=X, metas=metas)

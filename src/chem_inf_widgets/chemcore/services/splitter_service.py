@@ -19,6 +19,7 @@ class SplitConfig:
     validation_size: float = 0.0
     random_state: int = 0
     target_column: str | None = None
+    scaffold_kind: str = "murcko"
 
 
 @dataclass(frozen=True)
@@ -175,6 +176,7 @@ def _split_by_scaffold_method(
     test_size: float,
     validation_size: float,
     random_state: int,
+    scaffold_kind: str,
     issues: list[ServiceIssue],
 ) -> SplitResult:
     smiles_var = find_smiles_var(data)
@@ -194,6 +196,7 @@ def _split_by_scaffold_method(
         train_fraction=1.0 - float(test_size) - float(validation_size),
         validation_fraction=float(validation_size),
         test_fraction=float(test_size),
+        scaffold_kind=str(scaffold_kind or "murcko"),
         random_seed=int(random_state),
     )
 
@@ -272,6 +275,7 @@ def split_dataset(
             test_size=test_size,
             validation_size=validation_size,
             random_state=int(cfg.random_state),
+            scaffold_kind=cfg.scaffold_kind,
             issues=issues,
         )
 
