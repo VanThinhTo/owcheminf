@@ -15,7 +15,6 @@ from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 
 from chem_inf_widgets.widgets import ow_chemical_series_explorer as series_widget_module
 from chem_inf_widgets.widgets.ow_chemical_series_explorer import OWChemicalSeriesExplorer
-from chem_inf_widgets.widgets.utils import summarize_service_issues
 
 _APP = QApplication.instance() or QApplication([])
 
@@ -55,6 +54,7 @@ def _patch_outputs(widget: OWChemicalSeriesExplorer, sent: list[tuple[str, objec
         patch.object(widget.Outputs.members_table, "send", lambda value: sent.append(("members", value))),
         patch.object(widget.Outputs.summary_table, "send", lambda value: sent.append(("summary", value))),
         patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))),
+        patch.object(widget.Outputs.rgroup_table, "send", lambda value: sent.append(("rgroup", value))),
     ]
 
 
@@ -68,11 +68,12 @@ def test_chemical_series_widget_runs_and_populates_views():
         widget.set_data(_demo_table())
         _APP.processEvents()
 
-    assert [name for name, _value in sent[:4]] == ["series", "members", "summary", "selected"]
-    assert all(value is not None for _name, value in sent[:4])
+    assert [name for name, _value in sent[:5]] == ["series", "members", "summary", "selected", "rgroup"]
+    assert all(value is not None for _name, value in sent[:5])
     assert "Chemical Series Explorer" in widget._report_browser.toHtml()
     assert widget._series_table_widget.rowCount() >= 1
     assert widget._members_table_widget.rowCount() >= 1
+    assert widget._rgroup_table_widget.rowCount() >= 1
     assert widget._target_combo.count() >= 2
     assert "Done:" in widget._status_label.text()
 
@@ -116,6 +117,10 @@ def test_chemical_series_widget_updates_selected_data_for_series_row():
     assert len(last_selected) == 2
     selected_names = {str(row["Name"]) for row in last_selected}
     assert selected_names == {"toluene", "phenol"}
+    rgroup_outputs = [value for name, value in sent if name == "rgroup" and value is not None]
+    assert rgroup_outputs
+    assert len(rgroup_outputs[-1]) == 2
+    assert widget._rgroup_status_label.text().startswith("Core:")
 
     widget.onDeleteWidget()
     widget.close()
@@ -129,14 +134,8 @@ def test_chemical_series_widget_surfaces_service_errors():
         stack.enter_context(
             patch.object(
                 series_widget_module,
-                "show_service_issues",
-                lambda _w, issues, subject="service", issue_label="warning": warnings.append(
-                    summarize_service_issues(
-                        issues,
-                        subject=subject,
-                        issue_label=issue_label,
-                    )
-                ),
+                "set_widget_warning",
+                lambda _w, message: warnings.append(str(message or "")),
             )
         )
         widget.set_data(_table_without_smiles())
@@ -159,10 +158,11 @@ def test_chemical_series_widget_clears_outputs_without_input():
         widget.set_data(None)
         _APP.processEvents()
 
-    assert sent == [("series", None), ("members", None), ("summary", None), ("selected", None)]
+    assert sent == [("series", None), ("members", None), ("summary", None), ("selected", None), ("rgroup", None)]
     assert widget._report_browser.toPlainText() == ""
     assert widget._series_table_widget.rowCount() == 0
     assert widget._members_table_widget.rowCount() == 0
+    assert widget._rgroup_table_widget.rowCount() == 0
 
     widget.onDeleteWidget()
     widget.close()

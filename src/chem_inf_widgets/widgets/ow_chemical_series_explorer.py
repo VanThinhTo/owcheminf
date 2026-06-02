@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
+from AnyQt.QtCore import Qt
 from AnyQt.QtWidgets import (
     QComboBox,
     QLabel,
@@ -9,6 +10,8 @@ from AnyQt.QtWidgets import (
     QTableWidgetItem,
     QTabWidget,
     QTextBrowser,
+    QVBoxLayout,
+    QWidget,
 )
 from Orange.data import ContinuousVariable, Table
 from Orange.widgets import gui
@@ -26,13 +29,20 @@ from chem_inf_widgets.chemcore.services.chemical_series_service import (
     run_chemical_series_explorer,
     series_rows_as_dicts,
 )
+from chem_inf_widgets.chemcore.services.orange_table_utils import records_to_orange_table
+from chem_inf_widgets.chemcore.services.rgroup_decomposition_service import decompose_rgroups
 from chem_inf_widgets.widgets.ui_helpers import (
     clear_widget_messages,
     format_done_status,
     format_loaded_status,
     format_no_input_status,
+    set_widget_warning,
 )
-from chem_inf_widgets.widgets.utils import send_output_values, show_service_issues
+from chem_inf_widgets.widgets.utils import (
+    combine_messages,
+    send_output_values,
+    summarize_service_issues,
+)
 
 
 def _count_card(label: str, value: int | str) -> str:
@@ -121,6 +131,25 @@ def _numeric_target_names(data: Table | None) -> list[str]:
     return [var.name for var in variables if isinstance(var, ContinuousVariable)]
 
 
+def _rgroup_rows(result) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    for row in result.rows:
+        item = {
+            "row_index": int(row.index) + 1,
+            "core": row.core,
+        }
+        for label in result.group_labels:
+            item[label] = row.groups.get(label, "")
+        rows.append(item)
+    return rows
+
+
+def _rgroup_table(result) -> Table | None:
+    rows = _rgroup_rows(result)
+    meta_columns = ["row_index", "core", *list(result.group_labels)]
+    return records_to_orange_table(rows, meta_columns=meta_columns, name="Chemical Series R-Group Table")
+
+
 class OWChemicalSeriesExplorer(OWWidget):
     name = "Chemical Series Explorer"
     description = "Group compounds into scaffold-defined series and summarize per-series activity trends."
@@ -137,6 +166,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         members_table = Output("Members Table", Table)
         summary_table = Output("Summary Table", Table)
         selected_data = Output("Selected Data", Table)
+        rgroup_table = Output("R-Group Table", Table)
 
     auto_run = Setting(True)
     scaffold_kind_idx = Setting(0)
@@ -151,6 +181,8 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._result: ChemicalSeriesResult | None = None
         self._series_scaffolds: list[str] = []
         self._selected_scaffold = ""
+        self._service_warning_message = ""
+        self._rgroup_warning_message = ""
         self._build_ui()
         self._set_status("Waiting for data.", ok=True)
         self._refresh_target_combo()
@@ -205,6 +237,16 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._members_table_widget = QTableWidget()
         tabs.addTab(self._members_table_widget, "Members")
 
+        self._rgroup_status_label = QLabel("Select a series with at least two valid molecules.")
+        self._rgroup_status_label.setWordWrap(True)
+        self._rgroup_status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._rgroup_table_widget = QTableWidget()
+        rgroup_page = QWidget()
+        rgroup_layout = QVBoxLayout(rgroup_page)
+        rgroup_layout.addWidget(self._rgroup_status_label)
+        rgroup_layout.addWidget(self._rgroup_table_widget)
+        tabs.addTab(rgroup_page, "R-Groups")
+
     def _set_status(self, text: str, ok: bool = False) -> None:
         color = "#027A48" if ok else "#475467"
         self._status_label.setStyleSheet(f"color:{color};")
@@ -258,6 +300,8 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._result = None
         self._series_scaffolds = []
         self._selected_scaffold = ""
+        self._service_warning_message = ""
+        self._rgroup_warning_message = ""
         clear_widget_messages(self)
         self._report_browser.clear()
         self._series_table_widget.clear()
@@ -266,11 +310,16 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._members_table_widget.clear()
         self._members_table_widget.setRowCount(0)
         self._members_table_widget.setColumnCount(0)
+        self._rgroup_status_label.setText("Select a series with at least two valid molecules.")
+        self._rgroup_table_widget.clear()
+        self._rgroup_table_widget.setRowCount(0)
+        self._rgroup_table_widget.setColumnCount(0)
         send_output_values(
             (self.Outputs.series_table, None),
             (self.Outputs.members_table, None),
             (self.Outputs.summary_table, None),
             (self.Outputs.selected_data, None),
+            (self.Outputs.rgroup_table, None),
         )
 
     def _send_selected_data(self) -> None:
@@ -289,10 +338,80 @@ class OWChemicalSeriesExplorer(OWWidget):
 
         self.Outputs.selected_data.send(self.data[row_indices])
 
+    def _selected_member_records(self):
+        if self._result is None or not self._selected_scaffold:
+            return []
+        return [
+            record
+            for record in self._result.members
+            if record.series_scaffold == self._selected_scaffold and record.valid_molecule
+        ]
+
+    def _apply_warning_state(self) -> None:
+        set_widget_warning(
+            self,
+            combine_messages(self._service_warning_message, self._rgroup_warning_message),
+        )
+
+    def _update_rgroup_preview(self) -> None:
+        selected_records = self._selected_member_records()
+        self._rgroup_warning_message = ""
+        if len(selected_records) < 2:
+            self._rgroup_status_label.setText("Select a series with at least two valid molecules.")
+            self._rgroup_table_widget.clear()
+            self._rgroup_table_widget.setRowCount(0)
+            self._rgroup_table_widget.setColumnCount(0)
+            self.Outputs.rgroup_table.send(None)
+            self._apply_warning_state()
+            return
+
+        smiles_values = [record.input_smiles for record in selected_records if str(record.input_smiles).strip()]
+        if len(smiles_values) < 2:
+            self._rgroup_status_label.setText("Selected series does not contain enough valid SMILES for R-group decomposition.")
+            self._rgroup_table_widget.clear()
+            self._rgroup_table_widget.setRowCount(0)
+            self._rgroup_table_widget.setColumnCount(0)
+            self.Outputs.rgroup_table.send(None)
+            self._apply_warning_state()
+            return
+
+        try:
+            decomposition = decompose_rgroups(smiles_values)
+        except ValueError as exc:
+            self._rgroup_warning_message = f"R-group preview unavailable: {exc}"
+            self._rgroup_status_label.setText("R-group preview unavailable for the selected series.")
+            self._rgroup_table_widget.clear()
+            self._rgroup_table_widget.setRowCount(0)
+            self._rgroup_table_widget.setColumnCount(0)
+            self.Outputs.rgroup_table.send(None)
+            self._apply_warning_state()
+            return
+        except Exception as exc:
+            self._rgroup_warning_message = f"R-group preview failed: {exc}"
+            self._rgroup_status_label.setText("R-group preview failed for the selected series.")
+            self._rgroup_table_widget.clear()
+            self._rgroup_table_widget.setRowCount(0)
+            self._rgroup_table_widget.setColumnCount(0)
+            self.Outputs.rgroup_table.send(None)
+            self._apply_warning_state()
+            return
+
+        self._rgroup_status_label.setText(
+            f"Core: {decomposition.core} | matched={len(decomposition.matched_indices)}, "
+            f"unmatched={len(decomposition.unmatched_indices)}"
+        )
+        _set_table_rows(self._rgroup_table_widget, _rgroup_rows(decomposition))
+        self.Outputs.rgroup_table.send(_rgroup_table(decomposition))
+        self._apply_warning_state()
+
+    def _update_selected_outputs(self) -> None:
+        self._send_selected_data()
+        self._update_rgroup_preview()
+
     def _on_series_selection_changed(self) -> None:
         if not self._series_scaffolds:
             self._selected_scaffold = ""
-            self._send_selected_data()
+            self._update_selected_outputs()
             return
 
         row_index = self._series_table_widget.currentRow()
@@ -300,7 +419,7 @@ class OWChemicalSeriesExplorer(OWWidget):
             selected_ranges = self._series_table_widget.selectedRanges()
             if not selected_ranges:
                 self._selected_scaffold = ""
-                self._send_selected_data()
+                self._update_selected_outputs()
                 return
             row_index = selected_ranges[0].topRow()
 
@@ -308,7 +427,7 @@ class OWChemicalSeriesExplorer(OWWidget):
             self._selected_scaffold = self._series_scaffolds[row_index]
         else:
             self._selected_scaffold = ""
-        self._send_selected_data()
+        self._update_selected_outputs()
 
     def commit(self) -> None:
         if self.data is None:
@@ -319,6 +438,11 @@ class OWChemicalSeriesExplorer(OWWidget):
         clear_widget_messages(self)
         result = run_chemical_series_explorer(self.data, self._config())
         self._result = result
+        self._service_warning_message = summarize_service_issues(
+            result.issues,
+            subject="chemical series explorer",
+            issue_label="issue",
+        )
 
         series_table = chemical_series_table(result)
         members_table = chemical_series_members_table(result)
@@ -334,14 +458,16 @@ class OWChemicalSeriesExplorer(OWWidget):
         _set_table_rows(self._series_table_widget, series_rows)
         _set_table_rows(self._members_table_widget, chemical_series_members_as_dicts(result)[:200])
         self._series_scaffolds = [str(row.get("scaffold", "")) for row in series_rows]
+        self._series_table_widget.blockSignals(True)
         if self._series_scaffolds:
+            self._series_table_widget.setCurrentCell(0, 0)
             self._series_table_widget.selectRow(0)
             self._selected_scaffold = self._series_scaffolds[0]
         else:
             self._selected_scaffold = ""
-        self._send_selected_data()
+        self._series_table_widget.blockSignals(False)
+        self._update_selected_outputs()
 
-        show_service_issues(self, result.issues, subject="chemical series explorer", issue_label="issue")
         self._set_status(
             format_done_status(
                 f"rows={result.summary.n_rows}",

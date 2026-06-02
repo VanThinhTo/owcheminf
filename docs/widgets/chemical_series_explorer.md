@@ -29,10 +29,12 @@ The current version is intentionally lightweight:
 - `Members Table`
 - `Summary Table`
 - `Selected Data`
+- `R-Group Table`
 
 ## Notes
 
 - This widget is currently in `Cheminf - Development`.
 - The first version focuses on scaffold series grouping rather than full R-group or matched-pair workflows.
 - Selecting a row in the `Series` tab sends the matching subset on `Selected Data`.
+- The selected series also attempts a lightweight R-group decomposition preview and exports it on `R-Group Table`.
 - It pairs naturally with `Scaffold Analysis`, `Activity Cliff Finder`, and `R-Group Decomposition`.
