@@ -54,6 +54,7 @@ def _patch_outputs(widget: OWChemicalSeriesExplorer, sent: list[tuple[str, objec
         patch.object(widget.Outputs.series_table, "send", lambda value: sent.append(("series", value))),
         patch.object(widget.Outputs.members_table, "send", lambda value: sent.append(("members", value))),
         patch.object(widget.Outputs.summary_table, "send", lambda value: sent.append(("summary", value))),
+        patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))),
     ]
 
 
@@ -67,13 +68,54 @@ def test_chemical_series_widget_runs_and_populates_views():
         widget.set_data(_demo_table())
         _APP.processEvents()
 
-    assert [name for name, _value in sent] == ["series", "members", "summary"]
-    assert all(value is not None for _name, value in sent)
+    assert [name for name, _value in sent[:4]] == ["series", "members", "summary", "selected"]
+    assert all(value is not None for _name, value in sent[:4])
     assert "Chemical Series Explorer" in widget._report_browser.toHtml()
     assert widget._series_table_widget.rowCount() >= 1
     assert widget._members_table_widget.rowCount() >= 1
     assert widget._target_combo.count() >= 2
     assert "Done:" in widget._status_label.text()
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_chemical_series_widget_updates_selected_data_for_series_row():
+    widget = OWChemicalSeriesExplorer()
+    sent: list[tuple[str, object]] = []
+
+    with ExitStack() as stack:
+        for output_patch in _patch_outputs(widget, sent):
+            stack.enter_context(output_patch)
+        widget.set_data(_demo_table())
+        _APP.processEvents()
+
+        scaffold_row = None
+        scaffold_column = None
+        for column_index in range(widget._series_table_widget.columnCount()):
+            header_item = widget._series_table_widget.horizontalHeaderItem(column_index)
+            if header_item is not None and header_item.text() == "scaffold":
+                scaffold_column = column_index
+                break
+
+        assert scaffold_column is not None
+        for row_index in range(widget._series_table_widget.rowCount()):
+            item = widget._series_table_widget.item(row_index, scaffold_column)
+            if item is not None and item.text() == "c1ccccc1":
+                scaffold_row = row_index
+                break
+
+        assert scaffold_row is not None
+        widget._series_table_widget.setCurrentCell(scaffold_row, scaffold_column)
+        widget._series_table_widget.selectRow(scaffold_row)
+        _APP.processEvents()
+
+    selected_outputs = [value for name, value in sent if name == "selected" and value is not None]
+    assert selected_outputs
+    last_selected = selected_outputs[-1]
+    assert len(last_selected) == 2
+    selected_names = {str(row["Name"]) for row in last_selected}
+    assert selected_names == {"toluene", "phenol"}
 
     widget.onDeleteWidget()
     widget.close()
@@ -117,7 +159,7 @@ def test_chemical_series_widget_clears_outputs_without_input():
         widget.set_data(None)
         _APP.processEvents()
 
-    assert sent == [("series", None), ("members", None), ("summary", None)]
+    assert sent == [("series", None), ("members", None), ("summary", None), ("selected", None)]
     assert widget._report_browser.toPlainText() == ""
     assert widget._series_table_widget.rowCount() == 0
     assert widget._members_table_widget.rowCount() == 0

@@ -136,6 +136,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         series_table = Output("Series Table", Table, default=True)
         members_table = Output("Members Table", Table)
         summary_table = Output("Summary Table", Table)
+        selected_data = Output("Selected Data", Table)
 
     auto_run = Setting(True)
     scaffold_kind_idx = Setting(0)
@@ -148,6 +149,8 @@ class OWChemicalSeriesExplorer(OWWidget):
         super().__init__()
         self.data: Table | None = None
         self._result: ChemicalSeriesResult | None = None
+        self._series_scaffolds: list[str] = []
+        self._selected_scaffold = ""
         self._build_ui()
         self._set_status("Waiting for data.", ok=True)
         self._refresh_target_combo()
@@ -194,6 +197,9 @@ class OWChemicalSeriesExplorer(OWWidget):
         tabs.addTab(self._report_browser, "Summary")
 
         self._series_table_widget = QTableWidget()
+        self._series_table_widget.setSelectionBehavior(QTableWidget.SelectRows)
+        self._series_table_widget.setSelectionMode(QTableWidget.SingleSelection)
+        self._series_table_widget.itemSelectionChanged.connect(self._on_series_selection_changed)
         tabs.addTab(self._series_table_widget, "Series")
 
         self._members_table_widget = QTableWidget()
@@ -250,6 +256,8 @@ class OWChemicalSeriesExplorer(OWWidget):
 
     def _send_empty(self) -> None:
         self._result = None
+        self._series_scaffolds = []
+        self._selected_scaffold = ""
         clear_widget_messages(self)
         self._report_browser.clear()
         self._series_table_widget.clear()
@@ -262,7 +270,45 @@ class OWChemicalSeriesExplorer(OWWidget):
             (self.Outputs.series_table, None),
             (self.Outputs.members_table, None),
             (self.Outputs.summary_table, None),
+            (self.Outputs.selected_data, None),
         )
+
+    def _send_selected_data(self) -> None:
+        if self.data is None or self._result is None or not self._selected_scaffold:
+            self.Outputs.selected_data.send(None)
+            return
+
+        row_indices = [
+            int(record.row_index) - 1
+            for record in self._result.members
+            if record.series_scaffold == self._selected_scaffold and record.valid_molecule
+        ]
+        if not row_indices:
+            self.Outputs.selected_data.send(None)
+            return
+
+        self.Outputs.selected_data.send(self.data[row_indices])
+
+    def _on_series_selection_changed(self) -> None:
+        if not self._series_scaffolds:
+            self._selected_scaffold = ""
+            self._send_selected_data()
+            return
+
+        row_index = self._series_table_widget.currentRow()
+        if row_index < 0:
+            selected_ranges = self._series_table_widget.selectedRanges()
+            if not selected_ranges:
+                self._selected_scaffold = ""
+                self._send_selected_data()
+                return
+            row_index = selected_ranges[0].topRow()
+
+        if 0 <= row_index < len(self._series_scaffolds):
+            self._selected_scaffold = self._series_scaffolds[row_index]
+        else:
+            self._selected_scaffold = ""
+        self._send_selected_data()
 
     def commit(self) -> None:
         if self.data is None:
@@ -284,8 +330,16 @@ class OWChemicalSeriesExplorer(OWWidget):
         )
 
         self._report_browser.setHtml(_render_report_html(result))
-        _set_table_rows(self._series_table_widget, series_rows_as_dicts(result)[:100])
+        series_rows = series_rows_as_dicts(result)[:100]
+        _set_table_rows(self._series_table_widget, series_rows)
         _set_table_rows(self._members_table_widget, chemical_series_members_as_dicts(result)[:200])
+        self._series_scaffolds = [str(row.get("scaffold", "")) for row in series_rows]
+        if self._series_scaffolds:
+            self._series_table_widget.selectRow(0)
+            self._selected_scaffold = self._series_scaffolds[0]
+        else:
+            self._selected_scaffold = ""
+        self._send_selected_data()
 
         show_service_issues(self, result.issues, subject="chemical series explorer", issue_label="issue")
         self._set_status(

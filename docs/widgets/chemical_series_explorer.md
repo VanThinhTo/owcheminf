@@ -28,9 +28,11 @@ The current version is intentionally lightweight:
 - `Series Table`
 - `Members Table`
 - `Summary Table`
+- `Selected Data`
 
 ## Notes
 
 - This widget is currently in `Cheminf - Development`.
 - The first version focuses on scaffold series grouping rather than full R-group or matched-pair workflows.
+- Selecting a row in the `Series` tab sends the matching subset on `Selected Data`.
 - It pairs naturally with `Scaffold Analysis`, `Activity Cliff Finder`, and `R-Group Decomposition`.
