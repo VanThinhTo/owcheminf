@@ -133,6 +133,7 @@ _CATEGORY_SPECS = (
             "ow_qsar_regression",
             "ow_mlr_model_selection",
             "ow_dataset_profiler",
+            "ow_molecular_space_map",
             "ow_symbolic_regression",
         ),
     },
