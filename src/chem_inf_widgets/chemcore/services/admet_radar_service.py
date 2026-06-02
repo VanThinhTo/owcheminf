@@ -282,6 +282,18 @@ def _build_valid_record(
     )
 
 
+def _empty_result(
+    *,
+    n_rows: int,
+    issues: list[ServiceIssue],
+) -> AdmetRadarResult:
+    return AdmetRadarResult(
+        summary=AdmetRadarSummary(n_rows, 0, n_rows, 0, 0, 0, 0, 0, 0, 0),
+        records=(),
+        issues=tuple(issues),
+    )
+
+
 def run_admet_radar(
     data: Table | None,
     config: AdmetRadarConfig | None = None,
@@ -296,11 +308,7 @@ def run_admet_radar(
                 severity="error",
             )
         )
-        return AdmetRadarResult(
-            summary=AdmetRadarSummary(0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-            records=(),
-            issues=tuple(issues),
-        )
+        return _empty_result(n_rows=0, issues=issues)
 
     if any(obj is None for obj in (Descriptors, Crippen, rdMolDescriptors, qed)):
         issues.append(
@@ -310,13 +318,20 @@ def run_admet_radar(
                 severity="error",
             )
         )
-        return AdmetRadarResult(
-            summary=AdmetRadarSummary(len(data), 0, len(data), 0, 0, 0, 0, 0, 0, 0),
-            records=(),
-            issues=tuple(issues),
-        )
+        return _empty_result(n_rows=len(data), issues=issues)
 
-    mols, report = table_to_chemmols_with_report(data)
+    try:
+        mols, report = table_to_chemmols_with_report(data)
+    except (ImportError, ValueError) as exc:
+        issues.append(
+            ServiceIssue(
+                code="table_to_molecule_conversion_failed",
+                message=str(exc),
+                severity="error",
+            )
+        )
+        return _empty_result(n_rows=len(data), issues=issues)
+
     name_values = _column_strings(data, report.name_column)
     smiles_values = _column_strings(data, report.smiles_column)
     invalid_messages = _invalid_row_messages(report)
@@ -512,23 +527,126 @@ def admet_radar_records_table(result: AdmetRadarResult) -> Table | None:
     )
 
 
-def admet_radar_summary_table(result: AdmetRadarResult) -> Table | None:
+def admet_flagged_records_as_dicts(result: AdmetRadarResult) -> list[dict[str, object]]:
+    return [
+        {
+            "row_index": record.row_index,
+            "name": record.name,
+            "input_smiles": record.input_smiles,
+            "canonical_smiles": record.canonical_smiles,
+            "status": record.status,
+            "lipinski_pass": float(record.lipinski_pass),
+            "veber_pass": float(record.veber_pass),
+            "ghose_pass": float(record.ghose_pass),
+            "egan_pass": float(record.egan_pass),
+            "muegge_pass": float(record.muegge_pass),
+            "pains_match": float(record.pains_match),
+            "pains_regid": record.pains_regid,
+            "brenk_match": float(record.brenk_match),
+            "brenk_description": record.brenk_description,
+            "issues": " | ".join(record.issues),
+        }
+        for record in result.records
+        if (
+            not record.valid_molecule
+            or not record.lipinski_pass
+            or not record.veber_pass
+            or not record.ghose_pass
+            or not record.egan_pass
+            or not record.muegge_pass
+            or record.pains_match
+            or record.brenk_match
+            or bool(record.issue_codes)
+        )
+    ]
+
+
+def admet_flagged_table(result: AdmetRadarResult) -> Table | None:
+    return records_to_orange_table(
+        admet_flagged_records_as_dicts(result),
+        meta_columns=[
+            "row_index",
+            "name",
+            "input_smiles",
+            "canonical_smiles",
+            "status",
+            "pains_regid",
+            "brenk_description",
+            "issues",
+        ],
+        name="ADMET Radar Flagged Compounds",
+    )
+
+
+def admet_summary_as_rows(result: AdmetRadarResult) -> list[dict[str, object]]:
     summary = result.summary
     rows = [
-        {"metric": "n_rows", "value": summary.n_rows},
-        {"metric": "n_valid_molecules", "value": summary.n_valid_molecules},
-        {"metric": "n_invalid_molecules", "value": summary.n_invalid_molecules},
-        {"metric": "n_lipinski_pass", "value": summary.n_lipinski_pass},
-        {"metric": "n_veber_pass", "value": summary.n_veber_pass},
-        {"metric": "n_ghose_pass", "value": summary.n_ghose_pass},
-        {"metric": "n_egan_pass", "value": summary.n_egan_pass},
-        {"metric": "n_muegge_pass", "value": summary.n_muegge_pass},
-        {"metric": "n_pains_matches", "value": summary.n_pains_matches},
-        {"metric": "n_brenk_matches", "value": summary.n_brenk_matches},
+        {
+            "metric": "n_rows",
+            "value": summary.n_rows,
+            "description": "All input rows.",
+        },
+        {
+            "metric": "n_valid_molecules",
+            "value": summary.n_valid_molecules,
+            "description": "Rows with a valid parsed molecule.",
+        },
+        {
+            "metric": "n_invalid_molecules",
+            "value": summary.n_invalid_molecules,
+            "description": "Rows that could not be parsed as molecules.",
+        },
+        {
+            "metric": "n_lipinski_pass",
+            "value": summary.n_lipinski_pass,
+            "description": "Valid molecules passing Lipinski rule-of-five.",
+        },
+        {
+            "metric": "n_veber_pass",
+            "value": summary.n_veber_pass,
+            "description": "Valid molecules passing Veber rule.",
+        },
+        {
+            "metric": "n_ghose_pass",
+            "value": summary.n_ghose_pass,
+            "description": "Valid molecules passing Ghose filter.",
+        },
+        {
+            "metric": "n_egan_pass",
+            "value": summary.n_egan_pass,
+            "description": "Valid molecules passing Egan filter.",
+        },
+        {
+            "metric": "n_muegge_pass",
+            "value": summary.n_muegge_pass,
+            "description": "Valid molecules passing Muegge filter.",
+        },
+        {
+            "metric": "n_pains_matches",
+            "value": summary.n_pains_matches,
+            "description": "Valid molecules matching at least one PAINS alert.",
+        },
+        {
+            "metric": "n_brenk_matches",
+            "value": summary.n_brenk_matches,
+            "description": "Valid molecules matching at least one Brenk alert.",
+        },
     ]
+    for issue in result.issues:
+        rows.append(
+            {
+                "metric": f"issue_{issue.code}",
+                "value": 1,
+                "description": issue.message,
+            }
+        )
+    return rows
+
+
+def admet_radar_summary_table(result: AdmetRadarResult) -> Table | None:
     return records_to_orange_table(
-        rows,
-        meta_columns=["metric"],
+        admet_summary_as_rows(result),
+        meta_columns=["metric", "description"],
         name="ADMET Radar Summary",
     )
 
@@ -538,7 +656,10 @@ __all__ = [
     "AdmetRadarRecord",
     "AdmetRadarResult",
     "AdmetRadarSummary",
+    "admet_flagged_records_as_dicts",
+    "admet_flagged_table",
     "admet_radar_records_table",
     "admet_radar_summary_table",
+    "admet_summary_as_rows",
     "run_admet_radar",
 ]
