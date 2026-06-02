@@ -31,6 +31,7 @@ The current version is intentionally lightweight:
 - `Selected Data`
 - `R-Group Table`
 - `Matched Pair Table`
+- `Activity Cliff Table`
 
 ## Notes
 
@@ -39,4 +40,5 @@ The current version is intentionally lightweight:
 - Selecting a row in the `Series` tab sends the matching subset on `Selected Data`.
 - The selected series also attempts a lightweight R-group decomposition preview and exports it on `R-Group Table`.
 - The selected series also attempts a lightweight matched-pair preview and exports it on `Matched Pair Table`.
+- If the selected series contains enough activity signal, it also exports a lightweight `Activity Cliff Table`.
 - It pairs naturally with `Scaffold Analysis`, `Activity Cliff Finder`, and `R-Group Decomposition`.

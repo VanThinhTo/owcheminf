@@ -19,6 +19,7 @@ from Orange.widgets import gui
 from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Output, OWWidget
 
+from chem_inf_widgets.chemcore.services.activity_cliff_service import find_activity_cliffs
 from chem_inf_widgets.chemcore.services.chemical_series_service import (
     ChemicalSeriesConfig,
     ChemicalSeriesResult,
@@ -197,6 +198,46 @@ def _optional_finite_float(value) -> float | None:
     return value_float if math.isfinite(value_float) else None
 
 
+def _activity_cliff_rows(result, selected_records) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for pair in result.pairs:
+        record_a = selected_records[pair.index_a]
+        record_b = selected_records[pair.index_b]
+        out.append(
+            {
+                "row_index_a": record_a.row_index,
+                "row_index_b": record_b.row_index,
+                "name_a": pair.name_a,
+                "name_b": pair.name_b,
+                "smiles_a": pair.smiles_a,
+                "smiles_b": pair.smiles_b,
+                "similarity": pair.similarity,
+                "activity_ratio": pair.activity_ratio,
+                "cliff_score": pair.cliff_score,
+                "activity_a": pair.activity_a,
+                "activity_b": pair.activity_b,
+                "higher_active": pair.higher_active,
+            }
+        )
+    return out
+
+
+def _activity_cliff_table(result, selected_records) -> Table | None:
+    return records_to_orange_table(
+        _activity_cliff_rows(result, selected_records),
+        meta_columns=[
+            "row_index_a",
+            "row_index_b",
+            "name_a",
+            "name_b",
+            "smiles_a",
+            "smiles_b",
+            "higher_active",
+        ],
+        name="Chemical Series Activity Cliffs",
+    )
+
+
 class OWChemicalSeriesExplorer(OWWidget):
     name = "Chemical Series Explorer"
     description = "Group compounds into scaffold-defined series and summarize per-series activity trends."
@@ -215,6 +256,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         selected_data = Output("Selected Data", Table)
         rgroup_table = Output("R-Group Table", Table)
         matched_pair_table = Output("Matched Pair Table", Table)
+        activity_cliff_table = Output("Activity Cliff Table", Table)
 
     auto_run = Setting(True)
     scaffold_kind_idx = Setting(0)
@@ -232,6 +274,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._service_warning_message = ""
         self._rgroup_warning_message = ""
         self._mmp_warning_message = ""
+        self._cliff_warning_message = ""
         self._build_ui()
         self._set_status("Waiting for data.", ok=True)
         self._refresh_target_combo()
@@ -306,6 +349,16 @@ class OWChemicalSeriesExplorer(OWWidget):
         mmp_layout.addWidget(self._mmp_table_widget)
         tabs.addTab(mmp_page, "Matched Pairs")
 
+        self._cliff_status_label = QLabel("Select a series with at least two valid molecules and activities.")
+        self._cliff_status_label.setWordWrap(True)
+        self._cliff_status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._cliff_table_widget = QTableWidget()
+        cliff_page = QWidget()
+        cliff_layout = QVBoxLayout(cliff_page)
+        cliff_layout.addWidget(self._cliff_status_label)
+        cliff_layout.addWidget(self._cliff_table_widget)
+        tabs.addTab(cliff_page, "Activity Cliffs")
+
     def _set_status(self, text: str, ok: bool = False) -> None:
         color = "#027A48" if ok else "#475467"
         self._status_label.setStyleSheet(f"color:{color};")
@@ -362,6 +415,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._service_warning_message = ""
         self._rgroup_warning_message = ""
         self._mmp_warning_message = ""
+        self._cliff_warning_message = ""
         clear_widget_messages(self)
         self._report_browser.clear()
         self._series_table_widget.clear()
@@ -378,6 +432,10 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._mmp_table_widget.clear()
         self._mmp_table_widget.setRowCount(0)
         self._mmp_table_widget.setColumnCount(0)
+        self._cliff_status_label.setText("Select a series with at least two valid molecules and activities.")
+        self._cliff_table_widget.clear()
+        self._cliff_table_widget.setRowCount(0)
+        self._cliff_table_widget.setColumnCount(0)
         send_output_values(
             (self.Outputs.series_table, None),
             (self.Outputs.members_table, None),
@@ -385,6 +443,7 @@ class OWChemicalSeriesExplorer(OWWidget):
             (self.Outputs.selected_data, None),
             (self.Outputs.rgroup_table, None),
             (self.Outputs.matched_pair_table, None),
+            (self.Outputs.activity_cliff_table, None),
         )
 
     def _send_selected_data(self) -> None:
@@ -419,6 +478,7 @@ class OWChemicalSeriesExplorer(OWWidget):
                 self._service_warning_message,
                 self._rgroup_warning_message,
                 self._mmp_warning_message,
+                self._cliff_warning_message,
             ),
         )
 
@@ -527,10 +587,77 @@ class OWChemicalSeriesExplorer(OWWidget):
         self.Outputs.matched_pair_table.send(_matched_pair_table(rows, selected_records))
         self._apply_warning_state()
 
+    def _update_activity_cliff_preview(self) -> None:
+        selected_records = self._selected_member_records()
+        self._cliff_warning_message = ""
+        if len(selected_records) < 2:
+            self._cliff_status_label.setText("Select a series with at least two valid molecules and activities.")
+            self._cliff_table_widget.clear()
+            self._cliff_table_widget.setRowCount(0)
+            self._cliff_table_widget.setColumnCount(0)
+            self.Outputs.activity_cliff_table.send(None)
+            self._apply_warning_state()
+            return
+
+        eligible_records = [
+            record
+            for record in selected_records
+            if str(record.input_smiles).strip() and _optional_finite_float(record.activity) is not None
+        ]
+        if len(eligible_records) < 2:
+            self._cliff_status_label.setText("Selected series needs at least two valid activity values for cliff analysis.")
+            self._cliff_table_widget.clear()
+            self._cliff_table_widget.setRowCount(0)
+            self._cliff_table_widget.setColumnCount(0)
+            self.Outputs.activity_cliff_table.send(None)
+            self._apply_warning_state()
+            return
+
+        smiles_values = [record.input_smiles for record in eligible_records]
+        activity_values = [float(_optional_finite_float(record.activity)) for record in eligible_records]
+        names = [record.name for record in eligible_records]
+
+        try:
+            result = find_activity_cliffs(
+                smiles_values,
+                activity_values,
+                names=names,
+                similarity_threshold=0.25,
+                activity_fold_threshold=10.0,
+                activity_log_scale=bool(self.activity_log_scale),
+                max_pairs=100,
+            )
+        except Exception as exc:
+            self._cliff_warning_message = f"Activity-cliff preview failed: {exc}"
+            self._cliff_status_label.setText("Activity-cliff preview failed for the selected series.")
+            self._cliff_table_widget.clear()
+            self._cliff_table_widget.setRowCount(0)
+            self._cliff_table_widget.setColumnCount(0)
+            self.Outputs.activity_cliff_table.send(None)
+            self._apply_warning_state()
+            return
+
+        if not result.pairs:
+            self._cliff_status_label.setText("No activity cliffs found for the selected series.")
+            self._cliff_table_widget.clear()
+            self._cliff_table_widget.setRowCount(0)
+            self._cliff_table_widget.setColumnCount(0)
+            self.Outputs.activity_cliff_table.send(None)
+            self._apply_warning_state()
+            return
+
+        self._cliff_status_label.setText(
+            f"Activity cliffs: {len(result.pairs)} | compounds in cliffs: {len(result.unique_cliff_indices)}"
+        )
+        _set_table_rows(self._cliff_table_widget, _activity_cliff_rows(result, eligible_records))
+        self.Outputs.activity_cliff_table.send(_activity_cliff_table(result, eligible_records))
+        self._apply_warning_state()
+
     def _update_selected_outputs(self) -> None:
         self._send_selected_data()
         self._update_rgroup_preview()
         self._update_matched_pair_preview()
+        self._update_activity_cliff_preview()
 
     def _on_series_selection_changed(self) -> None:
         if not self._series_scaffolds:

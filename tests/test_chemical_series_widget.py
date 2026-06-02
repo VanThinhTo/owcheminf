@@ -26,7 +26,7 @@ def _demo_table() -> Table:
     )
     return Table.from_numpy(
         domain,
-        X=np.asarray([[1.1], [2.2], [3.3], [4.4], [5.5], [6.6]], dtype=float),
+        X=np.asarray([[1.1], [22.0], [3.3], [66.0], [5.5], [6.6]], dtype=float),
         metas=np.asarray(
             [
                 ["Cc1ccccc1", "toluene"],
@@ -56,6 +56,7 @@ def _patch_outputs(widget: OWChemicalSeriesExplorer, sent: list[tuple[str, objec
         patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))),
         patch.object(widget.Outputs.rgroup_table, "send", lambda value: sent.append(("rgroup", value))),
         patch.object(widget.Outputs.matched_pair_table, "send", lambda value: sent.append(("mmp", value))),
+        patch.object(widget.Outputs.activity_cliff_table, "send", lambda value: sent.append(("cliff", value))),
     ]
 
 
@@ -69,13 +70,14 @@ def test_chemical_series_widget_runs_and_populates_views():
         widget.set_data(_demo_table())
         _APP.processEvents()
 
-    assert [name for name, _value in sent[:6]] == ["series", "members", "summary", "selected", "rgroup", "mmp"]
-    assert all(value is not None for _name, value in sent[:6])
+    assert [name for name, _value in sent[:7]] == ["series", "members", "summary", "selected", "rgroup", "mmp", "cliff"]
+    assert all(value is not None for _name, value in sent[:7])
     assert "Chemical Series Explorer" in widget._report_browser.toHtml()
     assert widget._series_table_widget.rowCount() >= 1
     assert widget._members_table_widget.rowCount() >= 1
     assert widget._rgroup_table_widget.rowCount() >= 1
     assert widget._mmp_table_widget.rowCount() >= 1
+    assert widget._cliff_table_widget.rowCount() >= 1
     assert widget._target_combo.count() >= 2
     assert "Done:" in widget._status_label.text()
 
@@ -127,6 +129,10 @@ def test_chemical_series_widget_updates_selected_data_for_series_row():
     assert mmp_outputs
     assert len(mmp_outputs[-1]) >= 1
     assert widget._mmp_status_label.text().startswith("Matched pairs:")
+    cliff_outputs = [value for name, value in sent if name == "cliff" and value is not None]
+    assert cliff_outputs
+    assert len(cliff_outputs[-1]) >= 1
+    assert widget._cliff_status_label.text().startswith("Activity cliffs:")
 
     widget.onDeleteWidget()
     widget.close()
@@ -171,12 +177,14 @@ def test_chemical_series_widget_clears_outputs_without_input():
         ("selected", None),
         ("rgroup", None),
         ("mmp", None),
+        ("cliff", None),
     ]
     assert widget._report_browser.toPlainText() == ""
     assert widget._series_table_widget.rowCount() == 0
     assert widget._members_table_widget.rowCount() == 0
     assert widget._rgroup_table_widget.rowCount() == 0
     assert widget._mmp_table_widget.rowCount() == 0
+    assert widget._cliff_table_widget.rowCount() == 0
 
     widget.onDeleteWidget()
     widget.close()
