@@ -30,6 +30,7 @@ The current version is intentionally lightweight:
 - `Summary Table`
 - `Selected Data`
 - `R-Group Table`
+- `Matched Pair Table`
 
 ## Notes
 
@@ -37,4 +38,5 @@ The current version is intentionally lightweight:
 - The first version focuses on scaffold series grouping rather than full R-group or matched-pair workflows.
 - Selecting a row in the `Series` tab sends the matching subset on `Selected Data`.
 - The selected series also attempts a lightweight R-group decomposition preview and exports it on `R-Group Table`.
+- The selected series also attempts a lightweight matched-pair preview and exports it on `Matched Pair Table`.
 - It pairs naturally with `Scaffold Analysis`, `Activity Cliff Finder`, and `R-Group Decomposition`.

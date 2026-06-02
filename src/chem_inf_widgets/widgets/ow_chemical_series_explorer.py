@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from html import escape
 
 from AnyQt.QtCore import Qt
@@ -29,6 +30,7 @@ from chem_inf_widgets.chemcore.services.chemical_series_service import (
     run_chemical_series_explorer,
     series_rows_as_dicts,
 )
+from chem_inf_widgets.chemcore.services.matched_pair_service import find_matched_pairs
 from chem_inf_widgets.chemcore.services.orange_table_utils import records_to_orange_table
 from chem_inf_widgets.chemcore.services.rgroup_decomposition_service import decompose_rgroups
 from chem_inf_widgets.widgets.ui_helpers import (
@@ -150,6 +152,51 @@ def _rgroup_table(result) -> Table | None:
     return records_to_orange_table(rows, meta_columns=meta_columns, name="Chemical Series R-Group Table")
 
 
+def _matched_pair_rows(rows, selected_records) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for row in rows:
+        record_a = selected_records[row.index_a]
+        record_b = selected_records[row.index_b]
+        out.append(
+            {
+                "row_index_a": record_a.row_index,
+                "row_index_b": record_b.row_index,
+                "name_a": record_a.name,
+                "name_b": record_b.name,
+                "smiles_a": row.smiles_a,
+                "smiles_b": row.smiles_b,
+                "transformation": row.transformation,
+                "shared_heavy_atoms": row.shared_heavy_atoms,
+                "delta_activity": row.delta_property,
+            }
+        )
+    return out
+
+
+def _matched_pair_table(rows, selected_records) -> Table | None:
+    return records_to_orange_table(
+        _matched_pair_rows(rows, selected_records),
+        meta_columns=[
+            "row_index_a",
+            "row_index_b",
+            "name_a",
+            "name_b",
+            "smiles_a",
+            "smiles_b",
+            "transformation",
+        ],
+        name="Chemical Series Matched Pairs",
+    )
+
+
+def _optional_finite_float(value) -> float | None:
+    try:
+        value_float = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value_float if math.isfinite(value_float) else None
+
+
 class OWChemicalSeriesExplorer(OWWidget):
     name = "Chemical Series Explorer"
     description = "Group compounds into scaffold-defined series and summarize per-series activity trends."
@@ -167,6 +214,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         summary_table = Output("Summary Table", Table)
         selected_data = Output("Selected Data", Table)
         rgroup_table = Output("R-Group Table", Table)
+        matched_pair_table = Output("Matched Pair Table", Table)
 
     auto_run = Setting(True)
     scaffold_kind_idx = Setting(0)
@@ -183,6 +231,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._selected_scaffold = ""
         self._service_warning_message = ""
         self._rgroup_warning_message = ""
+        self._mmp_warning_message = ""
         self._build_ui()
         self._set_status("Waiting for data.", ok=True)
         self._refresh_target_combo()
@@ -247,6 +296,16 @@ class OWChemicalSeriesExplorer(OWWidget):
         rgroup_layout.addWidget(self._rgroup_table_widget)
         tabs.addTab(rgroup_page, "R-Groups")
 
+        self._mmp_status_label = QLabel("Select a series with at least two valid molecules.")
+        self._mmp_status_label.setWordWrap(True)
+        self._mmp_status_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._mmp_table_widget = QTableWidget()
+        mmp_page = QWidget()
+        mmp_layout = QVBoxLayout(mmp_page)
+        mmp_layout.addWidget(self._mmp_status_label)
+        mmp_layout.addWidget(self._mmp_table_widget)
+        tabs.addTab(mmp_page, "Matched Pairs")
+
     def _set_status(self, text: str, ok: bool = False) -> None:
         color = "#027A48" if ok else "#475467"
         self._status_label.setStyleSheet(f"color:{color};")
@@ -302,6 +361,7 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._selected_scaffold = ""
         self._service_warning_message = ""
         self._rgroup_warning_message = ""
+        self._mmp_warning_message = ""
         clear_widget_messages(self)
         self._report_browser.clear()
         self._series_table_widget.clear()
@@ -314,12 +374,17 @@ class OWChemicalSeriesExplorer(OWWidget):
         self._rgroup_table_widget.clear()
         self._rgroup_table_widget.setRowCount(0)
         self._rgroup_table_widget.setColumnCount(0)
+        self._mmp_status_label.setText("Select a series with at least two valid molecules.")
+        self._mmp_table_widget.clear()
+        self._mmp_table_widget.setRowCount(0)
+        self._mmp_table_widget.setColumnCount(0)
         send_output_values(
             (self.Outputs.series_table, None),
             (self.Outputs.members_table, None),
             (self.Outputs.summary_table, None),
             (self.Outputs.selected_data, None),
             (self.Outputs.rgroup_table, None),
+            (self.Outputs.matched_pair_table, None),
         )
 
     def _send_selected_data(self) -> None:
@@ -350,7 +415,11 @@ class OWChemicalSeriesExplorer(OWWidget):
     def _apply_warning_state(self) -> None:
         set_widget_warning(
             self,
-            combine_messages(self._service_warning_message, self._rgroup_warning_message),
+            combine_messages(
+                self._service_warning_message,
+                self._rgroup_warning_message,
+                self._mmp_warning_message,
+            ),
         )
 
     def _update_rgroup_preview(self) -> None:
@@ -404,9 +473,64 @@ class OWChemicalSeriesExplorer(OWWidget):
         self.Outputs.rgroup_table.send(_rgroup_table(decomposition))
         self._apply_warning_state()
 
+    def _update_matched_pair_preview(self) -> None:
+        selected_records = self._selected_member_records()
+        self._mmp_warning_message = ""
+        if len(selected_records) < 2:
+            self._mmp_status_label.setText("Select a series with at least two valid molecules.")
+            self._mmp_table_widget.clear()
+            self._mmp_table_widget.setRowCount(0)
+            self._mmp_table_widget.setColumnCount(0)
+            self.Outputs.matched_pair_table.send(None)
+            self._apply_warning_state()
+            return
+
+        smiles_values = [record.input_smiles for record in selected_records if str(record.input_smiles).strip()]
+        if len(smiles_values) < 2:
+            self._mmp_status_label.setText("Selected series does not contain enough valid SMILES for matched-pair analysis.")
+            self._mmp_table_widget.clear()
+            self._mmp_table_widget.setRowCount(0)
+            self._mmp_table_widget.setColumnCount(0)
+            self.Outputs.matched_pair_table.send(None)
+            self._apply_warning_state()
+            return
+
+        property_values = [_optional_finite_float(record.activity) for record in selected_records]
+        try:
+            rows = find_matched_pairs(
+                smiles_values,
+                property_values,
+                min_shared_atoms=4,
+                max_pairs=100,
+            )
+        except Exception as exc:
+            self._mmp_warning_message = f"Matched-pair preview failed: {exc}"
+            self._mmp_status_label.setText("Matched-pair preview failed for the selected series.")
+            self._mmp_table_widget.clear()
+            self._mmp_table_widget.setRowCount(0)
+            self._mmp_table_widget.setColumnCount(0)
+            self.Outputs.matched_pair_table.send(None)
+            self._apply_warning_state()
+            return
+
+        if not rows:
+            self._mmp_status_label.setText("No matched pairs found for the selected series.")
+            self._mmp_table_widget.clear()
+            self._mmp_table_widget.setRowCount(0)
+            self._mmp_table_widget.setColumnCount(0)
+            self.Outputs.matched_pair_table.send(None)
+            self._apply_warning_state()
+            return
+
+        self._mmp_status_label.setText(f"Matched pairs: {len(rows)}")
+        _set_table_rows(self._mmp_table_widget, _matched_pair_rows(rows, selected_records))
+        self.Outputs.matched_pair_table.send(_matched_pair_table(rows, selected_records))
+        self._apply_warning_state()
+
     def _update_selected_outputs(self) -> None:
         self._send_selected_data()
         self._update_rgroup_preview()
+        self._update_matched_pair_preview()
 
     def _on_series_selection_changed(self) -> None:
         if not self._series_scaffolds:

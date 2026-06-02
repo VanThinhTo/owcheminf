@@ -55,6 +55,7 @@ def _patch_outputs(widget: OWChemicalSeriesExplorer, sent: list[tuple[str, objec
         patch.object(widget.Outputs.summary_table, "send", lambda value: sent.append(("summary", value))),
         patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))),
         patch.object(widget.Outputs.rgroup_table, "send", lambda value: sent.append(("rgroup", value))),
+        patch.object(widget.Outputs.matched_pair_table, "send", lambda value: sent.append(("mmp", value))),
     ]
 
 
@@ -68,12 +69,13 @@ def test_chemical_series_widget_runs_and_populates_views():
         widget.set_data(_demo_table())
         _APP.processEvents()
 
-    assert [name for name, _value in sent[:5]] == ["series", "members", "summary", "selected", "rgroup"]
-    assert all(value is not None for _name, value in sent[:5])
+    assert [name for name, _value in sent[:6]] == ["series", "members", "summary", "selected", "rgroup", "mmp"]
+    assert all(value is not None for _name, value in sent[:6])
     assert "Chemical Series Explorer" in widget._report_browser.toHtml()
     assert widget._series_table_widget.rowCount() >= 1
     assert widget._members_table_widget.rowCount() >= 1
     assert widget._rgroup_table_widget.rowCount() >= 1
+    assert widget._mmp_table_widget.rowCount() >= 1
     assert widget._target_combo.count() >= 2
     assert "Done:" in widget._status_label.text()
 
@@ -121,6 +123,10 @@ def test_chemical_series_widget_updates_selected_data_for_series_row():
     assert rgroup_outputs
     assert len(rgroup_outputs[-1]) == 2
     assert widget._rgroup_status_label.text().startswith("Core:")
+    mmp_outputs = [value for name, value in sent if name == "mmp" and value is not None]
+    assert mmp_outputs
+    assert len(mmp_outputs[-1]) >= 1
+    assert widget._mmp_status_label.text().startswith("Matched pairs:")
 
     widget.onDeleteWidget()
     widget.close()
@@ -158,11 +164,19 @@ def test_chemical_series_widget_clears_outputs_without_input():
         widget.set_data(None)
         _APP.processEvents()
 
-    assert sent == [("series", None), ("members", None), ("summary", None), ("selected", None), ("rgroup", None)]
+    assert sent == [
+        ("series", None),
+        ("members", None),
+        ("summary", None),
+        ("selected", None),
+        ("rgroup", None),
+        ("mmp", None),
+    ]
     assert widget._report_browser.toPlainText() == ""
     assert widget._series_table_widget.rowCount() == 0
     assert widget._members_table_widget.rowCount() == 0
     assert widget._rgroup_table_widget.rowCount() == 0
+    assert widget._mmp_table_widget.rowCount() == 0
 
     widget.onDeleteWidget()
     widget.close()
