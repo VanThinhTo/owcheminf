@@ -16,6 +16,7 @@ The first version is intentionally lightweight:
 - `PCA` is available by default
 - `UMAP` is optional and falls back gracefully when unavailable
 - the widget emits coordinate and summary tables
+- the plot tab supports simple point-click selection
 
 ## Input
 
@@ -26,9 +27,10 @@ The first version is intentionally lightweight:
 
 - coordinate table for downstream visualization or export
 - summary table with method and variance metadata
+- selected data from clicked points
 
 ## Notes
 
 - This widget is currently in `Cheminf - Development`.
-- It is a backend-first skeleton and does not yet include a rich interactive scatter plot.
+- It now includes a basic scatter preview, but not yet rectangle/lasso selection or advanced styling.
 - It works well after descriptor or fingerprint generation steps.

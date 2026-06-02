@@ -51,6 +51,7 @@ def _patch_outputs(widget: OWMolecularSpaceMap, sent: list[tuple[str, object]]):
     return [
         patch.object(widget.Outputs.coordinates, "send", lambda value: sent.append(("coordinates", value))),
         patch.object(widget.Outputs.summary_table, "send", lambda value: sent.append(("summary", value))),
+        patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))),
     ]
 
 
@@ -64,14 +65,16 @@ def test_molecular_space_widget_runs_and_emits_outputs():
         widget.set_data(_demo_table())
         _APP.processEvents()
 
-    assert [name for name, _value in sent] == ["coordinates", "summary"]
+    assert [name for name, _value in sent] == ["coordinates", "summary", "selected"]
     coordinates = sent[0][1]
     assert coordinates is not None
     assert coordinates.X.shape == (4, 2)
     assert coordinates.domain.metas[0].name == "Name"
     assert sent[1][1] is not None
+    assert sent[2] == ("selected", None)
     assert "Molecular Space Map" in widget._summary_browser.toHtml()
     assert widget._coordinates_table_widget.rowCount() == 4
+    assert widget._plot_item is not None
     assert "Done:" in widget._status_label.text()
 
     widget.onDeleteWidget()
@@ -100,9 +103,35 @@ def test_molecular_space_widget_reports_service_errors():
 
     assert sent[0] == ("coordinates", None)
     assert sent[1][0] == "summary"
+    assert sent[2] == ("selected", None)
     assert warnings
     assert "empty" in warnings[-1].lower()
     assert widget._status_label.text().startswith("Failed:")
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_molecular_space_widget_publish_selection_emits_selected_rows():
+    widget = OWMolecularSpaceMap()
+    sent: list[tuple[str, object]] = []
+
+    with ExitStack() as stack:
+        for output_patch in _patch_outputs(widget, sent):
+            stack.enter_context(output_patch)
+        widget.set_data(_demo_table())
+        _APP.processEvents()
+        sent.clear()
+        widget._publish_selection([1, 3])
+        _APP.processEvents()
+
+    assert [name for name, _value in sent] == ["selected"]
+    selected = sent[0][1]
+    assert selected is not None
+    assert len(selected) == 2
+    assert selected.metas[0, 0] == "mol_2"
+    assert selected.metas[1, 0] == "mol_4"
+    assert "Selected 2 row(s)" in widget._selection_label.text()
 
     widget.onDeleteWidget()
     widget.close()
