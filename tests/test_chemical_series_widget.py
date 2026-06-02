@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+from contextlib import ExitStack
+from unittest.mock import patch
+
+import numpy as np
+import pytest
+
+pytest.importorskip("Orange")
+pytest.importorskip("AnyQt")
+pytest.importorskip("rdkit")
+
+from AnyQt.QtWidgets import QApplication
+from Orange.data import ContinuousVariable, Domain, StringVariable, Table
+
+from chem_inf_widgets.widgets import ow_chemical_series_explorer as series_widget_module
+from chem_inf_widgets.widgets.ow_chemical_series_explorer import OWChemicalSeriesExplorer
+from chem_inf_widgets.widgets.utils import summarize_service_issues
+
+_APP = QApplication.instance() or QApplication([])
+
+
+def _demo_table() -> Table:
+    domain = Domain(
+        [ContinuousVariable("activity")],
+        metas=[StringVariable("SMILES"), StringVariable("Name")],
+    )
+    return Table.from_numpy(
+        domain,
+        X=np.asarray([[1.1], [2.2], [3.3], [4.4], [5.5], [6.6]], dtype=float),
+        metas=np.asarray(
+            [
+                ["Cc1ccccc1", "toluene"],
+                ["Oc1ccccc1", "phenol"],
+                ["CC1CCCCC1", "ethyl_cyclohexane"],
+                ["OC1CCCCC1", "cyclohexanol"],
+                ["CCO", "ethanol"],
+                ["not-a-smiles", "broken"],
+            ],
+            dtype=object,
+        ),
+    )
+
+
+def _table_without_smiles() -> Table:
+    return Table.from_numpy(
+        Domain([ContinuousVariable("activity")]),
+        X=np.asarray([[1.0], [2.0]], dtype=float),
+    )
+
+
+def _patch_outputs(widget: OWChemicalSeriesExplorer, sent: list[tuple[str, object]]):
+    return [
+        patch.object(widget.Outputs.series_table, "send", lambda value: sent.append(("series", value))),
+        patch.object(widget.Outputs.members_table, "send", lambda value: sent.append(("members", value))),
+        patch.object(widget.Outputs.summary_table, "send", lambda value: sent.append(("summary", value))),
+    ]
+
+
+def test_chemical_series_widget_runs_and_populates_views():
+    widget = OWChemicalSeriesExplorer()
+    sent: list[tuple[str, object]] = []
+
+    with ExitStack() as stack:
+        for output_patch in _patch_outputs(widget, sent):
+            stack.enter_context(output_patch)
+        widget.set_data(_demo_table())
+        _APP.processEvents()
+
+    assert [name for name, _value in sent] == ["series", "members", "summary"]
+    assert all(value is not None for _name, value in sent)
+    assert "Chemical Series Explorer" in widget._report_browser.toHtml()
+    assert widget._series_table_widget.rowCount() >= 1
+    assert widget._members_table_widget.rowCount() >= 1
+    assert widget._target_combo.count() >= 2
+    assert "Done:" in widget._status_label.text()
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_chemical_series_widget_surfaces_service_errors():
+    widget = OWChemicalSeriesExplorer()
+    warnings: list[str] = []
+
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(
+                series_widget_module,
+                "show_service_issues",
+                lambda _w, issues, subject="service", issue_label="warning": warnings.append(
+                    summarize_service_issues(
+                        issues,
+                        subject=subject,
+                        issue_label=issue_label,
+                    )
+                ),
+            )
+        )
+        widget.set_data(_table_without_smiles())
+        _APP.processEvents()
+
+    assert warnings
+    assert warnings[-1].startswith("1 chemical series explorer issue(s).")
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_chemical_series_widget_clears_outputs_without_input():
+    widget = OWChemicalSeriesExplorer()
+    sent: list[tuple[str, object]] = []
+
+    with ExitStack() as stack:
+        for output_patch in _patch_outputs(widget, sent):
+            stack.enter_context(output_patch)
+        widget.set_data(None)
+        _APP.processEvents()
+
+    assert sent == [("series", None), ("members", None), ("summary", None)]
+    assert widget._report_browser.toPlainText() == ""
+    assert widget._series_table_widget.rowCount() == 0
+    assert widget._members_table_widget.rowCount() == 0
+
+    widget.onDeleteWidget()
+    widget.close()
