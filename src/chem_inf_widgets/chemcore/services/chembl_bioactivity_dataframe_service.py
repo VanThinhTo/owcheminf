@@ -10,6 +10,7 @@ import requests
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
 
 NUMERIC_OUTPUT_COLUMNS = [
+    "standard_value",
     "pchembl_value",
     "IC50_nM",
     "hbd",
@@ -27,6 +28,8 @@ META_OUTPUT_COLUMNS = [
     "target_chembl_id",
     "assay_chembl_id",
     "document_chembl_id",
+    "standard_relation",
+    "standard_units",
     "target_organism",
     "target_name",
 ]
@@ -111,7 +114,7 @@ def process_ic50_values(df: pd.DataFrame) -> pd.DataFrame:
         lambda row: convert_activity_to_nm(row.get("standard_value"), row.get("standard_units")),
         axis=1,
     )
-    return out.drop(columns=["standard_value", "standard_units"])
+    return out
 
 
 def normalize_smiles_column(df: pd.DataFrame) -> pd.DataFrame:

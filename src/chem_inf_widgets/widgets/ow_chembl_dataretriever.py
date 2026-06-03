@@ -175,7 +175,7 @@ class ChEMBLBioactivityWidget(OWWidget):
     def _create_orange_table(self, df: pd.DataFrame) -> Table:
         """Convert a pandas DataFrame to an Orange Table."""
         num_cols = [col for col in df.columns if col in [
-            'pchembl_value', 'IC50_nM', 'hbd', 'hba', 'rotable_bonds',
+            'standard_value', 'pchembl_value', 'IC50_nM', 'hbd', 'hba', 'rotable_bonds',
             'mw', 'tpsa', 'logp', 'lipinski_deviations'
         ]]
         meta_cols = [col for col in df.columns if col not in num_cols]

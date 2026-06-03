@@ -35,6 +35,7 @@ class ChemBLBioactivityRecord:
 
     # optional “normalized” convenience (only if type matches)
     ic50_nM: Optional[float]
+    standard_relation: str = ""
 
 
 @dataclass(frozen=True)

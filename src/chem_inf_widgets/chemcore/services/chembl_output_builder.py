@@ -64,6 +64,8 @@ def _bio_value(record: ChemBLBioactivityRecord, key: str) -> Any:
         return getattr(record, "ic50_nM", None)
     if key == "standard_type":
         return getattr(record, "standard_type", "") or ""
+    if key == "standard_relation":
+        return getattr(record, "standard_relation", "") or ""
     if key == "standard_units":
         return getattr(record, "standard_units", "") or ""
     if key == "assay_chembl_id":
@@ -170,6 +172,7 @@ def build_bioactivity_outputs(
         return None, []
 
     prop_keys = list(prop_keys or [])
+    selected_bio_keys = set(selected_bio_fields or [])
     normalized_props = _normalize_props_by_id(props_by_id)
     bio_by_id = aggregate_bio_by_molecule(recs, selected_bio_fields, bio_field_specs)
 
@@ -183,6 +186,7 @@ def build_bioactivity_outputs(
         StringVariable("assay_chembl_id"),
         StringVariable("target_chembl_id"),
         StringVariable("standard_type"),
+        StringVariable("standard_relation"),
         StringVariable("standard_units"),
         smiles_var,
     ]
@@ -199,6 +203,7 @@ def build_bioactivity_outputs(
 
         smiles = str(getattr(record, "smiles", "") or "")
         standard_type = str(getattr(record, "standard_type", "") or "")
+        standard_relation = str(getattr(record, "standard_relation", "") or "")
         standard_units = str(getattr(record, "standard_units", "") or "")
         assay_id = str(getattr(record, "assay_chembl_id", "") or "")
         target_id = str(getattr(record, "target_chembl_id", "") or "")
@@ -210,7 +215,9 @@ def build_bioactivity_outputs(
         numeric_row.append(_to_float_nan(getattr(record, "standard_value", None)))
         numeric_row.append(_to_float_nan(getattr(record, "pchembl_value", None)))
         rows_x.append(numeric_row)
-        rows_m.append([molecule_id_raw, assay_id, target_id, standard_type, standard_units, smiles])
+        rows_m.append(
+            [molecule_id_raw, assay_id, target_id, standard_type, standard_relation, standard_units, smiles]
+        )
 
         if not smiles:
             continue
@@ -222,6 +229,7 @@ def build_bioactivity_outputs(
         chem_mol.set_prop("assay_chembl_id", assay_id)
         chem_mol.set_prop("target_chembl_id", target_id)
         chem_mol.set_prop("standard_type", standard_type)
+        chem_mol.set_prop("standard_relation", standard_relation)
         chem_mol.set_prop("standard_units", standard_units)
         chem_mol.set_prop("standard_value", getattr(record, "standard_value", None))
         chem_mol.set_prop("pChEMBL", getattr(record, "pchembl_value", None))
@@ -235,6 +243,8 @@ def build_bioactivity_outputs(
         if bio:
             chem_mol.set_prop("bio_n", bio.get("bio_n", 0))
             for key, kind in bio_field_specs:
+                if key not in selected_bio_keys:
+                    continue
                 if kind == "num":
                     chem_mol.set_prop(key, bio.get(key, None))
                 elif kind in ("meta", "smiles"):

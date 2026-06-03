@@ -102,6 +102,7 @@ class ChemBLBioactivityService:
                 continue
 
             stype = (a.get("standard_type") or "").strip()
+            relation = (a.get("standard_relation") or a.get("relation") or "").strip()
             units = (a.get("standard_units") or "").strip()
 
             # If we ran fallback, optionally filter locally
@@ -134,6 +135,7 @@ class ChemBLBioactivityService:
                     standard_units=units,
                     pchembl_value=pchembl,
                     ic50_nM=ic50_nM,
+                    standard_relation=relation,
                 )
             )
 

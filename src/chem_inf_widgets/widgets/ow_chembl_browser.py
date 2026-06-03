@@ -140,6 +140,7 @@ class OWChemBLBrowser(OWWidget):
         ("standard_value", "num"),
         ("IC50_nM", "num"),
         ("standard_type", "meta"),
+        ("standard_relation", "meta"),
         ("standard_units", "meta"),
         ("assay_chembl_id", "meta"),
         ("target_chembl_id", "meta"),
@@ -193,6 +194,7 @@ class OWChemBLBrowser(OWWidget):
                 "pChEMBL",
                 "standard_value",
                 "standard_type",
+                "standard_relation",
                 "standard_units",
                 "assay_chembl_id",
                 "target_chembl_id",
@@ -364,8 +366,10 @@ class OWChemBLBrowser(OWWidget):
         rv.addWidget(self.tbl_report)
         layout.addWidget(rep)
 
-        self.tbl_bio = QTableWidget(0, 6)
-        self.tbl_bio.setHorizontalHeaderLabels(["Molecule", "SMILES", "Type", "Value", "Units", "pChEMBL"])
+        self.tbl_bio = QTableWidget(0, 7)
+        self.tbl_bio.setHorizontalHeaderLabels(
+            ["Molecule", "SMILES", "Type", "Relation", "Value", "Units", "pChEMBL"]
+        )
         self.tbl_bio.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_bio.setSelectionMode(QAbstractItemView.ExtendedSelection)
         layout.addWidget(self.tbl_bio)
@@ -764,9 +768,10 @@ class OWChemBLBrowser(OWWidget):
             self.tbl_bio.setItem(row, 0, QTableWidgetItem(str(getattr(r, "molecule_chembl_id", "") or "")))
             self.tbl_bio.setItem(row, 1, QTableWidgetItem(str(getattr(r, "smiles", "") or "")))
             self.tbl_bio.setItem(row, 2, QTableWidgetItem(str(getattr(r, "standard_type", "") or "")))
-            self.tbl_bio.setItem(row, 3, QTableWidgetItem(format_number(getattr(r, "standard_value", None), 3)))
-            self.tbl_bio.setItem(row, 4, QTableWidgetItem(str(getattr(r, "standard_units", "") or "")))
-            self.tbl_bio.setItem(row, 5, QTableWidgetItem(format_number(getattr(r, "pchembl_value", None), 2)))
+            self.tbl_bio.setItem(row, 3, QTableWidgetItem(str(getattr(r, "standard_relation", "") or "")))
+            self.tbl_bio.setItem(row, 4, QTableWidgetItem(format_number(getattr(r, "standard_value", None), 3)))
+            self.tbl_bio.setItem(row, 5, QTableWidgetItem(str(getattr(r, "standard_units", "") or "")))
+            self.tbl_bio.setItem(row, 6, QTableWidgetItem(format_number(getattr(r, "pchembl_value", None), 2)))
         self.tbl_bio.resizeColumnsToContents()
 
     def _fill_report(self, rows: List[SummaryRow]) -> None:

@@ -24,6 +24,7 @@ BIO_FIELD_SPECS = [
     ("standard_value", "num"),
     ("IC50_nM", "num"),
     ("standard_type", "meta"),
+    ("standard_relation", "meta"),
     ("standard_units", "meta"),
     ("assay_chembl_id", "meta"),
     ("target_chembl_id", "meta"),
@@ -45,6 +46,7 @@ class ChemblOutputBuilderTests(unittest.TestCase):
                 standard_units="nM",
                 pchembl_value=6.5,
                 ic50_nM=120.0,
+                standard_relation="=",
             ),
             ChemBLBioactivityRecord(
                 molecule_chembl_id="CHEMBL1",
@@ -55,12 +57,13 @@ class ChemblOutputBuilderTests(unittest.TestCase):
                 standard_units="nM",
                 pchembl_value=7.0,
                 ic50_nM=80.0,
+                standard_relation="<",
             ),
         ]
 
         aggregated = aggregate_bio_by_molecule(
             recs,
-            ["pChEMBL", "standard_value", "standard_type", "standard_units"],
+            ["pChEMBL", "standard_value", "standard_type", "standard_relation", "standard_units"],
             BIO_FIELD_SPECS,
         )
 
@@ -68,6 +71,7 @@ class ChemblOutputBuilderTests(unittest.TestCase):
         self.assertEqual(aggregated["CHEMBL1"]["pChEMBL"], 7.0)
         self.assertEqual(aggregated["CHEMBL1"]["standard_value"], 80.0)
         self.assertEqual(aggregated["CHEMBL1"]["standard_type"], "IC50")
+        self.assertEqual(aggregated["CHEMBL1"]["standard_relation"], "=")
         self.assertEqual(aggregated["CHEMBL1"]["standard_units"], "nM")
 
     def test_derive_prop_keys_from_records_prefers_known_qsar_fields(self):
@@ -96,6 +100,7 @@ class ChemblOutputBuilderTests(unittest.TestCase):
                 standard_units="nM",
                 pchembl_value=6.5,
                 ic50_nM=120.0,
+                standard_relation="=",
             ),
             ChemBLBioactivityRecord(
                 molecule_chembl_id="CHEMBL2",
@@ -106,6 +111,7 @@ class ChemblOutputBuilderTests(unittest.TestCase):
                 standard_units="nM",
                 pchembl_value=5.0,
                 ic50_nM=500.0,
+                standard_relation=">",
             ),
         ]
 
@@ -118,8 +124,11 @@ class ChemblOutputBuilderTests(unittest.TestCase):
         )
         self.assertIsNotNone(table)
         self.assertEqual(len(table), 2)
+        self.assertEqual([meta.name for meta in table.domain.metas][3], "standard_type")
+        self.assertEqual([meta.name for meta in table.domain.metas][4], "standard_relation")
         self.assertEqual(len(mols), 1)
         self.assertEqual(mols[0].name, "CHEMBL1")
+        self.assertEqual(mols[0].get_prop("standard_relation"), "=")
 
         mol_table, mol_outputs = build_molecule_outputs(
             mols=[

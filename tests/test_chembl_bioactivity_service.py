@@ -32,6 +32,7 @@ class ChemblBioactivityServiceTests(unittest.TestCase):
                     "molecule_chembl_id": "CHEMBL1",
                     "canonical_smiles": "C(C)O",
                     "standard_type": "IC50",
+                    "standard_relation": "=",
                     "standard_value": "12.0",
                     "standard_units": "nM",
                     "pchembl_value": "8.1",
@@ -48,6 +49,7 @@ class ChemblBioactivityServiceTests(unittest.TestCase):
                     "molecule_chembl_id": "CHEMBL2",
                     "canonical_smiles": "CCN",
                     "standard_type": "IC50",
+                    "standard_relation": ">",
                     "standard_value": "18.0",
                     "standard_units": "nM",
                     "pchembl_value": "7.9",
@@ -61,6 +63,7 @@ class ChemblBioactivityServiceTests(unittest.TestCase):
         records = ChemBLBioactivityService().fetch_for_target("CHEMBL203", standard_type="IC50", limit=2)
 
         self.assertEqual([record.molecule_chembl_id for record in records], ["CHEMBL1", "CHEMBL2"])
+        self.assertEqual([record.standard_relation for record in records], ["=", ">"])
         self.assertEqual(mock_get.call_args_list[1].args[0], "https://www.ebi.ac.uk/chembl/api/data/activity.json?limit=1&offset=1&target_chembl_id=CHEMBL203&standard_type=IC50")
         self.assertIsNone(mock_get.call_args_list[1].kwargs["params"])
 

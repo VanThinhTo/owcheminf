@@ -87,6 +87,7 @@ class ChemblBioactivityDataframeServiceTests(unittest.TestCase):
                     "canonical_smiles": "CCO",
                     "standard_value": 2.0,
                     "standard_units": "uM",
+                    "standard_relation": "=",
                     "molecule_chembl_id": "CHEMBL1",
                 }
             ]
@@ -98,6 +99,8 @@ class ChemblBioactivityDataframeServiceTests(unittest.TestCase):
         self.assertIn("IC50_nM", normalized.columns)
         self.assertEqual(normalized.at[0, "IC50_nM"], 2000.0)
         self.assertIn("SMILES", normalized.columns)
+        self.assertIn("standard_units", normalized.columns)
+        self.assertIn("standard_relation", normalized.columns)
         self.assertNotIn("canonical_smiles", normalized.columns)
 
     def test_calculate_drug_properties_and_filter_columns(self):
@@ -107,6 +110,9 @@ class ChemblBioactivityDataframeServiceTests(unittest.TestCase):
                     "SMILES": "CCO",
                     "molecule_chembl_id": "CHEMBL1",
                     "target_chembl_id": "CHEMBLT1",
+                    "standard_relation": "=",
+                    "standard_units": "nM",
+                    "standard_value": 500.0,
                     "pchembl_value": 6.3,
                     "IC50_nM": 500.0,
                     "extra_col": "ignored",
@@ -119,6 +125,9 @@ class ChemblBioactivityDataframeServiceTests(unittest.TestCase):
 
         self.assertIn("mw", filtered.columns)
         self.assertIn("logp", filtered.columns)
+        self.assertIn("standard_value", filtered.columns)
+        self.assertIn("standard_relation", filtered.columns)
+        self.assertIn("standard_units", filtered.columns)
         self.assertIn("SMILES", filtered.columns)
         self.assertNotIn("extra_col", filtered.columns)
 

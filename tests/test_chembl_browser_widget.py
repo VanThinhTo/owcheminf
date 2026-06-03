@@ -13,6 +13,7 @@ from AnyQt.QtWidgets import QApplication
 from Orange.data import Domain, StringVariable, Table
 
 from chem_inf_widgets.chemcore.mol import ChemMol
+from chem_inf_widgets.chemcore.services.chembl_models import ChemBLBioactivityRecord
 from chem_inf_widgets.chemcore.services.chembl_models import ChemBLMoleculeRecord
 from chem_inf_widgets.widgets.ow_chembl_browser import OWChemBLBrowser
 
@@ -86,6 +87,32 @@ def test_chembl_browser_update_molecules_sends_quick_outputs_before_enrichment()
     assert len(quick_molecules) == 1
     assert quick_molecules[0].name == "CHEMBL1"
     assert widget.lbl_status.text() == "Loaded 1 molecules in 42 ms."
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_chembl_browser_fill_bio_shows_relation_column():
+    widget = OWChemBLBrowser()
+    records = [
+        ChemBLBioactivityRecord(
+            molecule_chembl_id="CHEMBL1",
+            target_chembl_id="CHEMBLT1",
+            smiles="CCO",
+            standard_type="IC50",
+            standard_value=120.0,
+            standard_units="nM",
+            pchembl_value=6.5,
+            ic50_nM=120.0,
+            standard_relation=">=",
+        )
+    ]
+
+    widget._fill_bio(records)
+
+    assert widget.tbl_bio.columnCount() == 7
+    assert widget.tbl_bio.horizontalHeaderItem(3).text() == "Relation"
+    assert widget.tbl_bio.item(0, 3).text() == ">="
 
     widget.onDeleteWidget()
     widget.close()
