@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import List, Optional
 from urllib.parse import urljoin
@@ -84,13 +85,63 @@ class ChemBLTargetService:
             )
         return out
 
+    @staticmethod
+    def _normalize_text(value: object) -> str:
+        return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+    def _match_rank(self, item: dict, query: str) -> tuple:
+        q = self._normalize_text(query)
+        chembl_id = self._normalize_text(item.get("target_chembl_id"))
+        pref_name = self._normalize_text(item.get("pref_name") or item.get("target_pref_name"))
+        organism = self._normalize_text(item.get("organism") or item.get("target_organism"))
+        target_type = self._normalize_text(item.get("target_type"))
+        api_score = float(item.get("score") or 0.0)
+
+        aliases: list[str] = []
+        for component in item.get("target_components") or []:
+            description = self._normalize_text(component.get("component_description"))
+            if description:
+                aliases.append(description)
+            for synonym in component.get("target_component_synonyms") or []:
+                alias = self._normalize_text(synonym.get("component_synonym"))
+                if alias:
+                    aliases.append(alias)
+
+        exact_id = chembl_id == q
+        exact_pref = pref_name == q
+        exact_alias = q in aliases
+        whole_pref = bool(q) and re.search(rf"\b{re.escape(q)}\b", pref_name) is not None
+        whole_alias = bool(q) and any(re.search(rf"\b{re.escape(q)}\b", alias) is not None for alias in aliases)
+        contains_pref = bool(q) and q in pref_name
+        contains_alias = bool(q) and any(q in alias for alias in aliases)
+        single_protein = target_type == "single protein"
+        human = organism == "homo sapiens"
+
+        return (
+            exact_id,
+            exact_pref,
+            exact_alias and single_protein,
+            exact_alias,
+            whole_pref and single_protein,
+            whole_alias and single_protein,
+            whole_pref,
+            whole_alias,
+            contains_pref and single_protein,
+            contains_alias and single_protein,
+            contains_pref,
+            contains_alias,
+            single_protein,
+            human,
+            api_score,
+        )
+
     def search(self, query: str, limit: int = 50) -> List[ChemBLTargetRecord]:
         q = (query or "").strip()
         if not q:
             return []
 
         limit = int(limit)
-        cache_key = f"targets.search:q={q}|limit={limit}"
+        cache_key = f"targets.search.v2:q={q}|limit={limit}"
 
         # disk cache
         if self.cache_policy.enabled:
@@ -101,11 +152,12 @@ class ChemBLTargetService:
         url = f"{self.BASE}/target/search.json"
 
         # Pagination: follow page_meta.next if present
-        collected: List[ChemBLTargetRecord] = []
+        collected: list[tuple[ChemBLTargetRecord, dict]] = []
         next_url: Optional[str] = url
-        params = {"q": q, "limit": min(limit, 1000)}  # ChEMBL limit cap varies; keep safe
+        fetch_limit = min(max(limit, 25), 1000)
+        params = {"q": q, "limit": fetch_limit}  # fetch extra rows so we can re-rank exact aliases locally
 
-        while next_url and len(collected) < limit:
+        while next_url and len(collected) < fetch_limit:
             r = self._request(next_url, params=params)
             payload = r.json() or {}
 
@@ -114,15 +166,14 @@ class ChemBLTargetService:
                 tid = (item.get("target_chembl_id") or "").strip()
                 if not tid:
                     continue
-                collected.append(
-                    ChemBLTargetRecord(
-                        chembl_id=tid,
-                        pref_name=(item.get("pref_name") or item.get("target_pref_name") or "").strip(),
-                        organism=(item.get("organism") or item.get("target_organism") or "").strip(),
-                        target_type=(item.get("target_type") or "").strip(),
-                    )
+                record = ChemBLTargetRecord(
+                    chembl_id=tid,
+                    pref_name=(item.get("pref_name") or item.get("target_pref_name") or "").strip(),
+                    organism=(item.get("organism") or item.get("target_organism") or "").strip(),
+                    target_type=(item.get("target_type") or "").strip(),
                 )
-                if len(collected) >= limit:
+                collected.append((record, item))
+                if len(collected) >= fetch_limit:
                     break
 
             # next link
@@ -136,16 +187,19 @@ class ChemBLTargetService:
 
         # de-dup stable
         seen = set()
-        uniq: List[ChemBLTargetRecord] = []
-        for t in collected:
-            if t.chembl_id in seen:
+        uniq: list[tuple[ChemBLTargetRecord, dict]] = []
+        for record, raw_item in collected:
+            if record.chembl_id in seen:
                 continue
-            seen.add(t.chembl_id)
-            uniq.append(t)
+            seen.add(record.chembl_id)
+            uniq.append((record, raw_item))
+
+        uniq.sort(key=lambda pair: self._match_rank(pair[1], q), reverse=True)
+        ranked_records = [record for record, _raw_item in uniq[:limit]]
 
         if self.cache_policy.enabled:
-            self.cache.set(cache_key, self._serialize(uniq))
-        return uniq
+            self.cache.set(cache_key, self._serialize(ranked_records))
+        return ranked_records
 
     def get(self, target_chembl_id: str) -> Optional[ChemBLTargetRecord]:
         tid = (target_chembl_id or "").strip().upper()

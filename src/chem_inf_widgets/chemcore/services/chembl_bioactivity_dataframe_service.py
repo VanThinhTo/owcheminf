@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from typing import Dict, Iterable, Optional, Sequence
+from urllib.parse import urljoin
 
 import numpy as np
 import pandas as pd
 import requests
 
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
-
 
 NUMERIC_OUTPUT_COLUMNS = [
     "pchembl_value",
@@ -31,6 +31,15 @@ META_OUTPUT_COLUMNS = [
     "target_name",
 ]
 
+BASE_ACTIVITY_URL = "https://www.ebi.ac.uk/chembl/api/data/activity.json"
+
+
+def _resolve_next_url(next_url: object) -> Optional[str]:
+    value = str(next_url or "").strip()
+    if not value:
+        return None
+    return urljoin(BASE_ACTIVITY_URL, value)
+
 
 def fetch_bioactivity_dataframe(
     target_id: str,
@@ -39,7 +48,7 @@ def fetch_bioactivity_dataframe(
     limit: int = 1000,
     timeout: int = 30,
 ) -> pd.DataFrame:
-    url = "https://www.ebi.ac.uk/chembl/api/data/activity.json"
+    url = BASE_ACTIVITY_URL
     params = {
         "target_chembl_id": target_id,
         "standard_type": standard_type,
@@ -55,14 +64,17 @@ def fetch_bioactivity_dataframe(
         )
         response.raise_for_status()
         payload = response.json()
-        data.extend(payload.get("activities", []))
-        url = payload.get("page_meta", {}).get("next")
+        activities = payload.get("activities", [])
+        data.extend(activities)
+        if len(data) >= int(limit):
+            break
+        url = _resolve_next_url(payload.get("page_meta", {}).get("next"))
         params = None
 
     if not data:
         return pd.DataFrame()
 
-    df = pd.DataFrame(data)
+    df = pd.DataFrame(data[: int(limit)])
     if "pchembl_value" in df.columns:
         df["pchembl_value"] = pd.to_numeric(df["pchembl_value"], errors="coerce")
         df = df.dropna(subset=["pchembl_value"])

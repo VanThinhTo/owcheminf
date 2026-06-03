@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 
 import pandas as pd
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -40,7 +39,7 @@ class ChemblBioactivityDataframeServiceTests(unittest.TestCase):
                     "molecule_chembl_id": "CHEMBL2",
                 },
             ],
-            "page_meta": {"next": "https://next.example/page-2"},
+            "page_meta": {"next": "/chembl/api/data/activity.json?limit=1000&offset=2&target_chembl_id=CHEMBLT1&standard_type=IC50"},
         }
 
         second = Mock()
@@ -71,6 +70,10 @@ class ChemblBioactivityDataframeServiceTests(unittest.TestCase):
             },
         )
         self.assertIsNone(mock_get.call_args_list[1].kwargs["params"])
+        self.assertEqual(
+            mock_get.call_args_list[1].args[0],
+            "https://www.ebi.ac.uk/chembl/api/data/activity.json?limit=1000&offset=2&target_chembl_id=CHEMBLT1&standard_type=IC50",
+        )
 
     def test_convert_activity_to_nm(self):
         self.assertEqual(convert_activity_to_nm(1.5, "uM"), 1500.0)

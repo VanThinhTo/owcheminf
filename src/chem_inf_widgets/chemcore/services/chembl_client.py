@@ -1,7 +1,10 @@
-import requests
 from typing import List
-from .rdkit_utils import canonical_smiles
+from urllib.parse import urljoin
+
+import requests
+
 from ..models.chembl_record import ChemBLRecord
+from .rdkit_utils import canonical_smiles
 
 
 class ChEMBLClient:
@@ -33,6 +36,8 @@ class ChEMBLClient:
                     )
                 )
 
-            url = data.get("page_meta", {}).get("next")
+            next_url = data.get("page_meta", {}).get("next")
+            url = urljoin(self.BASE, str(next_url)) if next_url else None
+            params = None
 
         return records

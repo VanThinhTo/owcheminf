@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -35,15 +34,24 @@ class ChemblClientTests(unittest.TestCase):
                     "target_chembl_id": "CHEMBLT1",
                 },
             ],
-            "page_meta": {"next": None},
+            "page_meta": {"next": "/chembl/api/data/activity.json?limit=1000&offset=1000&target_chembl_id=CHEMBLT1"},
         }
-        mock_get.return_value = response
+
+        second = Mock()
+        second.raise_for_status.return_value = None
+        second.json.return_value = {"activities": [], "page_meta": {"next": None}}
+
+        mock_get.side_effect = [response, second]
 
         records = ChEMBLClient().fetch_bioactivities("CHEMBLT1")
 
         self.assertEqual(len(records), 2)
         self.assertEqual(records[0].smiles, "CCO")
         self.assertEqual(records[1].smiles, "")
+        self.assertEqual(
+            mock_get.call_args_list[1].args[0],
+            "https://www.ebi.ac.uk/chembl/api/data/activity.json?limit=1000&offset=1000&target_chembl_id=CHEMBLT1",
+        )
 
 
 if __name__ == "__main__":

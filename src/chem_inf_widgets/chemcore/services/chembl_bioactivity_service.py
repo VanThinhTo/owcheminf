@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import time
 from typing import List, Optional
+from urllib.parse import urljoin
 
 import requests
 
@@ -44,29 +45,48 @@ class ChemBLBioactivityService:
 
         st = (standard_type or "").strip()
         url = f"{self.BASE}/activity.json"
+        page_size = max(1, min(int(limit), 1000))
 
         # 1) try with standard_type filter (fast)
-        params = {"target_chembl_id": tid, "limit": int(limit)}
+        params = {"target_chembl_id": tid, "limit": page_size}
         if st:
             params["standard_type"] = st
 
         try:
-            r = self._get(url, params=params)
-            payload = r.json() or {}
-            acts = payload.get("activities") or []
+            acts = self._fetch_activity_rows(url, params=params, limit=int(limit))
             return self._parse_activities(acts, tid, prefer_standard_type=st)
 
         except Exception as e:
             # Fallback: if ChEMBL returns 500 when standard_type is set, retry without it
             if st:
                 try:
-                    r2 = self._get(url, params={"target_chembl_id": tid, "limit": int(limit)})
-                    payload2 = r2.json() or {}
-                    acts2 = payload2.get("activities") or []
+                    acts2 = self._fetch_activity_rows(
+                        url,
+                        params={"target_chembl_id": tid, "limit": page_size},
+                        limit=int(limit),
+                    )
                     return self._parse_activities(acts2, tid, prefer_standard_type=st)
                 except Exception as e2:
                     raise RuntimeError(f"ChEMBL activity fetch failed (with fallback): {e2}") from e2
             raise RuntimeError(f"ChEMBL activity fetch failed: {e}") from e
+
+    def _fetch_activity_rows(self, url: str, params: dict, limit: int) -> list:
+        acts: list = []
+        next_url: Optional[str] = url
+        next_params: Optional[dict] = dict(params)
+
+        while next_url and len(acts) < int(limit):
+            response = self._get(next_url, params=next_params)
+            payload = response.json() or {}
+            page_activities = payload.get("activities") or []
+            acts.extend(page_activities)
+            if len(acts) >= int(limit):
+                break
+            next_value = (payload.get("page_meta") or {}).get("next") or payload.get("next")
+            next_url = urljoin(self.BASE + "/", str(next_value)) if next_value else None
+            next_params = None
+
+        return acts[: int(limit)]
 
     def _parse_activities(
         self,

@@ -89,6 +89,11 @@ class ChemBLMoleculeService:
             out.append(x)
         return out
 
+    def _build_set_url(self, resource: str, ids: Iterable[str], suffix: str) -> str:
+        mids = self._clean_ids(ids)
+        joined = ";".join(mids)
+        return f"{self.BASE}/{resource}/set/{joined}{suffix}"
+
     # ---------------- counts ----------------
 
     def fetch_activity_total_count_for_target(self, target_chembl_id: str) -> Optional[int]:
@@ -209,10 +214,12 @@ class ChemBLMoleculeService:
 
         # Prefer set endpoint, fall back to per-molecule if needed
         try:
-            url = f"{self.BASE}/molecule/set/{','.join(mids)}.json"
+            url = self._build_set_url("molecule", mids, ".json")
             r = self._get(url)
             payload = r.json() or {}
             mols = payload.get("molecules") or []
+            if not mols and mids:
+                raise RuntimeError("ChEMBL molecule set endpoint returned no molecules.")
             out: List[ChemBLMoleculePropsRecord] = []
             for m in mols:
                 rec = self._parse_with_props(m, prop_keys)
@@ -280,7 +287,7 @@ class ChemBLMoleculeService:
         if not mids:
             return ""
         try:
-            url = f"{self.BASE}/molecule/set/{','.join(mids)}.sdf"
+            url = self._build_set_url("molecule", mids, ".sdf")
             r = self._get(url)
             return r.text
         except Exception:
