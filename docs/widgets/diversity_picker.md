@@ -19,6 +19,7 @@ Source:
 ## Output
 
 - `Selected Data` — diverse subset as Orange `Table`
+- `Annotated Data` — full table with chemical-space and diversity annotations
 - `Remainder Data` — compounds not selected
 - `Selected Molecules` — diverse subset as `ChemMol` list
 - `Remainder Molecules` — remainder as `ChemMol` list
@@ -28,6 +29,18 @@ Source:
 - MaxMin (default, deterministic)
 - Sphere exclusion
 - Butina clustering
+
+## Chemical-space view
+
+- Morgan fingerprints are computed internally with radius `2` and `2048` bits.
+- The widget projects valid compounds into `2D` with `PCA`.
+- All valid compounds are shown as circles.
+- Selected compounds are overlaid as stars.
+- The annotated full-table output includes:
+  - `chem_space_x`
+  - `chem_space_y`
+  - `diversity_selected`
+  - `diversity_rank`
 
 ## Typical workflow
 

@@ -2,6 +2,7 @@ import sys
 import unittest
 from pathlib import Path
 
+import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -65,6 +66,10 @@ class DiversityServiceTests(unittest.TestCase):
         self.assertEqual(len(result.selected_indices), 2)
         self.assertEqual(result.metrics_input.n_compounds, 5)
         self.assertEqual(result.metrics_selected.n_compounds, 2)
+        self.assertEqual(result.coordinates.shape, (len(self.smiles), 2))
+        self.assertTrue(np.isnan(result.coordinates[5]).all())
+        self.assertEqual(sorted(rank for rank in result.selection_ranks if rank is not None), [1, 2])
+        self.assertIsNotNone(result.explained_variance)
 
 
 if __name__ == "__main__":

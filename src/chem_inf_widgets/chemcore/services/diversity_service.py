@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
-from typing import Literal, Optional
+from dataclasses import dataclass, field
+from typing import Literal
 
+import numpy as np
 from rdkit import DataStructs
 from rdkit.Chem import rdFingerprintGenerator
 from rdkit.ML.Cluster import Butina
+from rdkit.SimDivFilters.rdSimDivPickers import MaxMinPicker
 
+from chem_inf_widgets.chemcore.services.molecular_space_service import (
+    MolecularSpaceConfig,
+    compute_molecular_space,
+)
 from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
-
 
 DiversityMethod = Literal["maxmin", "sphere_exclusion", "butina"]
 
@@ -33,18 +38,39 @@ class DiversitySelectionResult:
     failed_indices: list[int]
     metrics_input: DiversityMetrics
     metrics_selected: DiversityMetrics
+    coordinates: np.ndarray = field(default_factory=lambda: np.empty((0, 2), dtype=float))
+    explained_variance: list[float] | None = None
+    selection_ranks: list[int | None] = field(default_factory=list)
 
 
-def _compute_fps(smiles_list: list[str]) -> tuple[list, list[int]]:
+def _compute_fps(smiles_list: list[str]) -> tuple[list, list[int], np.ndarray]:
     fps = []
     valid_indices = []
+    rows: list[np.ndarray] = []
     for index, smiles in enumerate(smiles_list):
         mol = safe_mol_from_smiles(smiles, sanitize=True, remove_hs=True).mol
         if mol is None:
             continue
-        fps.append(_MORGAN_GEN.GetFingerprint(mol))
+        fp = _MORGAN_GEN.GetFingerprint(mol)
+        arr = np.zeros((2048,), dtype=float)
+        DataStructs.ConvertToNumpyArray(fp, arr)
+        fps.append(fp)
         valid_indices.append(index)
-    return fps, valid_indices
+        rows.append(arr)
+    matrix = np.vstack(rows).astype(float, copy=False) if rows else np.empty((0, 2048), dtype=float)
+    return fps, valid_indices, matrix
+
+
+def _distance_function(fps: list):
+    cache: dict[tuple[int, int], float] = {}
+
+    def _dist(i: int, j: int) -> float:
+        key = (i, j) if i <= j else (j, i)
+        if key not in cache:
+            cache[key] = 1.0 - float(DataStructs.TanimotoSimilarity(fps[i], fps[j]))
+        return cache[key]
+
+    return _dist
 
 
 def maxmin_selection(
@@ -53,36 +79,29 @@ def maxmin_selection(
     seed_idx: int = 0,
     random_seed: int = 42,
 ) -> list[int]:
-    fps, valid_indices = _compute_fps(smiles_list)
+    fps, valid_indices, _matrix = _compute_fps(smiles_list)
     n_fps = len(fps)
     if n_fps == 0:
         return []
 
     n_select = min(max(1, int(n_select)), n_fps)
     rng = random.Random(random_seed)
-    if seed_idx < 0 or seed_idx >= n_fps:
-        seed_idx = rng.randint(0, n_fps - 1)
+    first_picks: list[int] = []
+    if 0 <= seed_idx < n_fps:
+        first_picks = [int(seed_idx)]
+    elif n_fps:
+        first_picks = [rng.randint(0, n_fps - 1)]
 
-    seed_sims = DataStructs.BulkTanimotoSimilarity(fps[seed_idx], fps)
-    min_dist = [1.0 - similarity for similarity in seed_sims]
-    min_dist[seed_idx] = -1.0
-    selected = [seed_idx]
-
-    while len(selected) < n_select:
-        next_idx = max(range(n_fps), key=lambda idx: min_dist[idx])
-        if min_dist[next_idx] < 0:
-            break
-
-        selected.append(next_idx)
-        min_dist[next_idx] = -1.0
-        new_sims = DataStructs.BulkTanimotoSimilarity(fps[next_idx], fps)
-        for idx in range(n_fps):
-            if min_dist[idx] < 0:
-                continue
-            new_dist = 1.0 - new_sims[idx]
-            if new_dist < min_dist[idx]:
-                min_dist[idx] = new_dist
-
+    picker = MaxMinPicker()
+    selected = list(
+        picker.LazyPick(
+            _distance_function(fps),
+            n_fps,
+            n_select,
+            firstPicks=first_picks,
+            seed=int(random_seed),
+        )
+    )
     return [valid_indices[idx] for idx in selected]
 
 
@@ -91,7 +110,7 @@ def sphere_exclusion(
     radius: float = 0.35,
     random_seed: int = 42,
 ) -> list[int]:
-    fps, valid_indices = _compute_fps(smiles_list)
+    fps, valid_indices, _matrix = _compute_fps(smiles_list)
     n_fps = len(fps)
     if n_fps == 0:
         return []
@@ -121,7 +140,7 @@ def butina_cluster_selection(
     n_clusters: int = 10,
     threshold: float = 0.4,
 ) -> list[int]:
-    fps, valid_indices = _compute_fps(smiles_list)
+    fps, valid_indices, _matrix = _compute_fps(smiles_list)
     n_fps = len(fps)
     if n_fps == 0:
         return []
@@ -147,7 +166,7 @@ def diversity_metrics(
     sample_size: int = 500,
     random_seed: int = 42,
 ) -> DiversityMetrics:
-    fps, _valid_indices = _compute_fps(smiles_list)
+    fps, _valid_indices, _matrix = _compute_fps(smiles_list)
     n_fps = len(fps)
     if n_fps < 2:
         return DiversityMetrics(
@@ -186,6 +205,46 @@ def diversity_metrics(
     )
 
 
+def _project_fingerprint_matrix(
+    matrix: np.ndarray,
+    *,
+    full_size: int,
+    valid_indices: list[int],
+    random_seed: int,
+) -> tuple[np.ndarray, list[float] | None]:
+    coordinates = np.full((int(full_size), 2), np.nan, dtype=float)
+    if matrix.shape[0] == 0:
+        return coordinates, None
+
+    projection = compute_molecular_space(
+        matrix,
+        MolecularSpaceConfig(method="pca", n_components=2, random_state=int(random_seed)),
+    )
+    valid_coords = np.asarray(projection.coordinates, dtype=float)
+    if valid_coords.ndim != 2 or valid_coords.shape[0] == 0:
+        return coordinates, projection.explained_variance
+
+    if valid_coords.shape[1] == 1:
+        valid_coords = np.column_stack([valid_coords[:, 0], np.zeros(valid_coords.shape[0], dtype=float)])
+    elif valid_coords.shape[1] > 2:
+        valid_coords = valid_coords[:, :2]
+
+    for row_index, original_index in enumerate(valid_indices):
+        coordinates[int(original_index), :] = valid_coords[row_index, :]
+    return coordinates, projection.explained_variance
+
+
+def _selection_ranks(
+    total_count: int,
+    selected_indices: list[int],
+) -> list[int | None]:
+    ranks: list[int | None] = [None] * int(total_count)
+    for rank, index in enumerate(selected_indices, start=1):
+        if 0 <= int(index) < len(ranks):
+            ranks[int(index)] = rank
+    return ranks
+
+
 def select_diverse_subset(
     smiles_list: list[str],
     *,
@@ -193,13 +252,13 @@ def select_diverse_subset(
     n_select: int = 25,
     seed_idx: int = 0,
     radius: float = 0.35,
-    n_clusters: Optional[int] = None,
+    n_clusters: int | None = None,
     threshold: float = 0.4,
     random_seed: int = 42,
 ) -> DiversitySelectionResult:
     method_name = method.strip().lower()
     metrics_input = diversity_metrics(smiles_list, random_seed=random_seed)
-    fps, valid_indices = _compute_fps(smiles_list)
+    _fps, valid_indices, matrix = _compute_fps(smiles_list)
     failed_indices = [idx for idx in range(len(smiles_list)) if idx not in set(valid_indices)]
 
     if method_name == "maxmin":
@@ -226,6 +285,12 @@ def select_diverse_subset(
 
     selected_smiles = [smiles_list[idx] for idx in selected_indices]
     metrics_selected = diversity_metrics(selected_smiles, random_seed=random_seed)
+    coordinates, explained_variance = _project_fingerprint_matrix(
+        matrix,
+        full_size=len(smiles_list),
+        valid_indices=valid_indices,
+        random_seed=random_seed,
+    )
     return DiversitySelectionResult(
         method=method_name,  # type: ignore[arg-type]
         selected_indices=selected_indices,
@@ -233,4 +298,7 @@ def select_diverse_subset(
         failed_indices=failed_indices,
         metrics_input=metrics_input,
         metrics_selected=metrics_selected,
+        coordinates=coordinates,
+        explained_variance=explained_variance,
+        selection_ranks=_selection_ranks(len(smiles_list), selected_indices),
     )
