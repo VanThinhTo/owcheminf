@@ -5,12 +5,16 @@ from html import escape
 import numpy as np
 import pyqtgraph as pg
 from AnyQt.QtCore import Qt
+from AnyQt.QtGui import QPixmap
 from AnyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -23,11 +27,13 @@ from Orange.widgets.settings import Setting
 from Orange.widgets.widget import Input, Output, OWWidget
 
 from chem_inf_widgets.chemcore.mol import ChemMol
+from chem_inf_widgets.chemcore.services import mol_depict
 from chem_inf_widgets.chemcore.services.diversity_service import (
     DiversitySelectionResult,
     select_diverse_subset,
 )
 from chem_inf_widgets.chemcore.services.orange_table_utils import safe_table_from_numpy
+from chem_inf_widgets.chemcore.services.rdkit_safe import safe_mol_from_smiles
 from chem_inf_widgets.widgets.ui_helpers import (
     clear_widget_messages,
     format_done_status,
@@ -36,10 +42,29 @@ from chem_inf_widgets.widgets.ui_helpers import (
     set_widget_error,
 )
 
+_LABEL_CANDIDATES = {
+    "name",
+    "compound_name",
+    "compound_id",
+    "molecule_id",
+    "chembl_id",
+    "identifier",
+    "id",
+    "title",
+}
+
+
+def _string_vars(data: Table) -> list[StringVariable]:
+    return [
+        var
+        for var in list(data.domain.metas) + list(data.domain.attributes) + list(data.domain.class_vars)
+        if isinstance(var, StringVariable)
+    ]
+
 
 def _find_smiles_vars(data: Table) -> list[StringVariable]:
     wanted = {"smiles", "canonical_smiles", "smile"}
-    variables = list(data.domain.metas) + list(data.domain.attributes) + list(data.domain.class_vars)
+    variables = _string_vars(data)
 
     preferred = [var for var in variables if isinstance(var, StringVariable) and var.name.strip().lower() in wanted]
     if preferred:
@@ -69,6 +94,15 @@ def _molecule_smiles(molecules: list[ChemMol]) -> list[str]:
         except Exception:
             smiles.append("")
     return smiles
+
+
+def _find_label_var_name(data: Table, *, exclude_name: str = "") -> str:
+    normalized_exclude = str(exclude_name or "").strip().lower()
+    variables = [var for var in _string_vars(data) if var.name.strip().lower() != normalized_exclude]
+    preferred = [var for var in variables if var.name.strip().lower() in _LABEL_CANDIDATES]
+    if preferred:
+        return preferred[0].name
+    return variables[0].name if variables else ""
 
 
 def _styled_plot(title: str = "") -> pg.PlotWidget:
@@ -135,7 +169,11 @@ def _summary_html(result: DiversitySelectionResult) -> str:
         "<h3>PCA projection</h3>"
         f"<ul>{explained_html}</ul>"
         "<h3>Display legend</h3>"
-        "<ul><li>Blue circles: all valid compounds</li><li>Orange stars: selected compounds</li></ul>"
+        "<ul>"
+        "<li>Blue circles: all valid compounds</li>"
+        "<li>Orange stars: selected compounds from the diversity picker</li>"
+        "<li>Dark outlined circles: compounds currently inspected from the plot</li>"
+        "</ul>"
         "</body></html>"
     )
 
@@ -230,6 +268,23 @@ def _annotated_table_from_molecules(molecules: list[ChemMol], result: DiversityS
     )
 
 
+def _mol_pixmap(smiles: str, size: int = 320) -> QPixmap | None:
+    clean = str(smiles or "").strip()
+    if not clean:
+        return None
+    mol = safe_mol_from_smiles(clean, sanitize=True, remove_hs=True).mol
+    if mol is None:
+        return None
+    png = mol_depict.render_mol_png(
+        mol,
+        size=size,
+        suppress_isolated_metal_radicals=True,
+    )
+    pixmap = QPixmap()
+    pixmap.loadFromData(png)
+    return pixmap
+
+
 class OWDiversityPicker(OWWidget):
     name = "Diversity Picker"
     description = "Select a diverse subset of compounds using MaxMin, sphere exclusion, or Butina clustering."
@@ -245,6 +300,7 @@ class OWDiversityPicker(OWWidget):
         selected_data = Output("Selected Data", Table, default=True)
         annotated_data = Output("Annotated Data", Table)
         remainder_data = Output("Remainder Data", Table)
+        inspected_data = Output("Inspected Data", Table)
         selected_molecules = Output("Selected Molecules", list, auto_summary=False)
         remainder_molecules = Output("Remainder Molecules", list, auto_summary=False)
 
@@ -268,8 +324,11 @@ class OWDiversityPicker(OWWidget):
         self.data: Table | None = None
         self.molecules: list[ChemMol] = []
         self._last_result: DiversitySelectionResult | None = None
+        self._last_annotated: Table | None = None
         self._all_points_item: pg.ScatterPlotItem | None = None
         self._selected_points_item: pg.ScatterPlotItem | None = None
+        self._inspection_points_item: pg.ScatterPlotItem | None = None
+        self._inspected_indices: list[int] = []
 
         root = QWidget(self.controlArea)
         layout = QVBoxLayout(root)
@@ -348,13 +407,40 @@ class OWDiversityPicker(OWWidget):
 
         tabs = QTabWidget()
         tabs.addTab(self._summary_browser, "Summary")
+
         plot_tab = QWidget()
         plot_layout = QVBoxLayout(plot_tab)
         plot_layout.addWidget(self._plot_widget, 1)
-        self._plot_legend = QLabel("Circles = all valid compounds, stars = selected compounds.")
+        self._plot_legend = QLabel(
+            "Circles = all valid compounds, stars = picker-selected compounds, outlined circles = inspected points. "
+            "Click to inspect; Ctrl-click adds or removes points."
+        )
         self._plot_legend.setWordWrap(True)
         plot_layout.addWidget(self._plot_legend)
         tabs.addTab(plot_tab, "Projection")
+
+        inspection_tab = QWidget()
+        inspection_layout = QHBoxLayout(inspection_tab)
+        self._inspection_list = QListWidget()
+        self._inspection_list.currentItemChanged.connect(self._on_inspection_item_changed)
+        self._inspection_list.setMinimumWidth(260)
+        inspection_layout.addWidget(self._inspection_list, 0)
+
+        inspection_detail = QWidget()
+        inspection_detail_layout = QVBoxLayout(inspection_detail)
+        self._structure_label = QLabel("Click points in the projection to inspect structures.")
+        self._structure_label.setAlignment(Qt.AlignCenter)
+        self._structure_label.setMinimumHeight(340)
+        self._structure_label.setStyleSheet(
+            "border:1px solid #D0D5DD; border-radius:8px; background:#FFFFFF; color:#475467; padding:10px;"
+        )
+        self._inspection_browser = QTextBrowser()
+        self._inspection_browser.setOpenExternalLinks(False)
+        inspection_detail_layout.addWidget(self._structure_label, 1)
+        inspection_detail_layout.addWidget(self._inspection_browser, 1)
+        inspection_layout.addWidget(inspection_detail, 1)
+        tabs.addTab(inspection_tab, "Inspection")
+
         self.mainArea.layout().addWidget(tabs)
 
         self._update_smiles_controls()
@@ -467,11 +553,130 @@ class OWDiversityPicker(OWWidget):
         self._plot_widget.clear()
         self._all_points_item = None
         self._selected_points_item = None
+        self._inspection_points_item = None
+        self._last_annotated = None
+        self._inspected_indices = []
+        self._inspection_list.clear()
+        self._inspection_browser.clear()
+        self._structure_label.setPixmap(QPixmap())
+        self._structure_label.setText("Click points in the projection to inspect structures.")
+
+    def _row_smiles(self, row_index: int) -> str:
+        if self.data is not None and 0 <= int(row_index) < len(self.data):
+            try:
+                value = self.data[row_index, self.smiles_var_name]
+            except (IndexError, KeyError, TypeError, ValueError):
+                value = ""
+            return "" if value is None else str(value).strip()
+        if 0 <= int(row_index) < len(self.molecules):
+            return _molecule_smiles([self.molecules[int(row_index)]])[0]
+        return ""
+
+    def _row_label(self, row_index: int) -> str:
+        if self.data is not None and 0 <= int(row_index) < len(self.data):
+            label_var_name = _find_label_var_name(self.data, exclude_name=self.smiles_var_name)
+            if label_var_name:
+                try:
+                    value = self.data[row_index, label_var_name]
+                except (IndexError, KeyError, TypeError, ValueError):
+                    value = ""
+                if value is not None and str(value).strip():
+                    return str(value).strip()
+        if 0 <= int(row_index) < len(self.molecules):
+            name = str(self.molecules[int(row_index)].name or "").strip()
+            if name:
+                return name
+        return f"Compound {int(row_index) + 1}"
+
+    def _row_detail_html(self, row_index: int) -> str:
+        label = escape(self._row_label(row_index))
+        smiles = escape(self._row_smiles(row_index) or "N/A")
+        selected_flag = "Yes" if self._last_result and int(row_index) in set(self._last_result.selected_indices) else "No"
+        rank_value = ""
+        x_value = float("nan")
+        y_value = float("nan")
+        if self._last_result is not None and 0 <= int(row_index) < len(self._last_result.selection_ranks):
+            rank = self._last_result.selection_ranks[int(row_index)]
+            rank_value = "" if rank is None else str(rank)
+            coordinates = np.asarray(self._last_result.coordinates, dtype=float)
+            if coordinates.ndim == 2 and 0 <= int(row_index) < coordinates.shape[0]:
+                x_value = float(coordinates[int(row_index), 0])
+                y_value = float(coordinates[int(row_index), 1]) if coordinates.shape[1] > 1 else 0.0
+        coord_html = (
+            f"{x_value:.4f}, {y_value:.4f}"
+            if np.isfinite(x_value) and np.isfinite(y_value)
+            else "Unavailable"
+        )
+        rank_html = escape(rank_value or "Not picked")
+        return (
+            "<html><body style='font-family:sans-serif;'>"
+            f"<h3>{label}</h3>"
+            "<ul>"
+            f"<li>Row: {int(row_index) + 1}</li>"
+            f"<li>SMILES: {smiles}</li>"
+            f"<li>Picker selected: {escape(selected_flag)}</li>"
+            f"<li>Diversity rank: {rank_html}</li>"
+            f"<li>Chemical-space coordinates: {escape(coord_html)}</li>"
+            "</ul>"
+            "</body></html>"
+        )
+
+    def _update_structure_preview(self, row_index: int | None) -> None:
+        if row_index is None:
+            self._structure_label.setPixmap(QPixmap())
+            self._structure_label.setText("Click points in the projection to inspect structures.")
+            self._inspection_browser.clear()
+            return
+
+        smiles = self._row_smiles(int(row_index))
+        pixmap = _mol_pixmap(smiles, size=320)
+        if pixmap is None or pixmap.isNull():
+            self._structure_label.setPixmap(QPixmap())
+            self._structure_label.setText("No structure depiction available for the current selection.")
+        else:
+            self._structure_label.setText("")
+            self._structure_label.setPixmap(
+                pixmap.scaled(320, 320, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
+        self._inspection_browser.setHtml(self._row_detail_html(int(row_index)))
+
+    def _update_inspection_list(self, row_indices: list[int]) -> None:
+        self._inspection_list.blockSignals(True)
+        try:
+            self._inspection_list.clear()
+            selected_set = set(self._last_result.selected_indices) if self._last_result is not None else set()
+            selection_ranks = self._last_result.selection_ranks if self._last_result is not None else []
+            for row_index in row_indices:
+                label = self._row_label(row_index)
+                text = f"{int(row_index) + 1}. {label}"
+                if row_index in selected_set:
+                    rank = selection_ranks[int(row_index)] if 0 <= int(row_index) < len(selection_ranks) else None
+                    rank_text = "" if rank is None else f" #{int(rank)}"
+                    text += f" [picked{rank_text}]"
+                item = QListWidgetItem(text)
+                item.setData(Qt.UserRole, int(row_index))
+                self._inspection_list.addItem(item)
+        finally:
+            self._inspection_list.blockSignals(False)
+
+        if row_indices:
+            self._inspection_list.setCurrentRow(0)
+            self._update_structure_preview(int(row_indices[0]))
+        else:
+            self._update_structure_preview(None)
+
+    def _on_inspection_item_changed(self, current: QListWidgetItem | None, _previous: QListWidgetItem | None) -> None:
+        if current is None:
+            self._update_structure_preview(None)
+            return
+        row_index = current.data(Qt.UserRole)
+        self._update_structure_preview(None if row_index is None else int(row_index))
 
     def _update_plot(self, result: DiversitySelectionResult) -> None:
         self._plot_widget.clear()
         self._all_points_item = None
         self._selected_points_item = None
+        self._inspection_points_item = None
 
         coordinates = np.asarray(result.coordinates, dtype=float)
         if coordinates.ndim != 2 or coordinates.shape[0] == 0:
@@ -483,35 +688,123 @@ class OWDiversityPicker(OWWidget):
         if not np.any(valid_mask):
             return
 
-        x_values = coordinates[valid_mask, 0]
-        y_values = coordinates[valid_mask, 1]
+        valid_indices = np.flatnonzero(valid_mask)
+        x_values = coordinates[valid_indices, 0]
+        y_values = coordinates[valid_indices, 1]
+        spots = [
+            {
+                "pos": (float(coordinates[row_index, 0]), float(coordinates[row_index, 1])),
+                "data": int(row_index),
+                "brush": pg.mkBrush(59, 130, 246, 180),
+                "pen": pg.mkPen(None),
+                "size": 8,
+            }
+            for row_index in valid_indices
+        ]
         self._all_points_item = pg.ScatterPlotItem(
-            x=x_values,
-            y=y_values,
-            size=8,
+            spots=spots,
             symbol="o",
-            pen=pg.mkPen(None),
-            brush=pg.mkBrush(59, 130, 246, 180),
+            hoverable=True,
+            hoverSize=11,
+            hoverBrush=pg.mkBrush(37, 99, 235, 220),
         )
+        self._all_points_item.sigClicked.connect(self._on_points_clicked)
         self._plot_widget.addItem(self._all_points_item)
 
         selected_rows = [index for index in result.selected_indices if 0 <= index < coordinates.shape[0]]
         if selected_rows:
             selected_coords = coordinates[selected_rows, :]
             finite_selected = np.isfinite(selected_coords[:, 0]) & np.isfinite(selected_coords[:, 1])
+            selected_spots = [
+                {
+                    "pos": (float(selected_coords[idx, 0]), float(selected_coords[idx, 1])),
+                    "data": int(selected_rows[idx]),
+                    "brush": pg.mkBrush(251, 146, 60, 230),
+                    "pen": pg.mkPen("#C2410C", width=1.5),
+                    "size": 16,
+                }
+                for idx in np.flatnonzero(finite_selected)
+            ]
             self._selected_points_item = pg.ScatterPlotItem(
-                x=selected_coords[finite_selected, 0],
-                y=selected_coords[finite_selected, 1],
-                size=16,
+                spots=selected_spots,
                 symbol="star",
-                pen=pg.mkPen("#C2410C", width=1.5),
-                brush=pg.mkBrush(251, 146, 60, 230),
+                hoverable=True,
+                hoverSize=19,
+                hoverBrush=pg.mkBrush(249, 115, 22, 255),
             )
+            self._selected_points_item.sigClicked.connect(self._on_points_clicked)
             self._plot_widget.addItem(self._selected_points_item)
+
+        self._inspection_points_item = pg.ScatterPlotItem(
+            symbol="o",
+            size=18,
+            pen=pg.mkPen("#0F172A", width=2),
+            brush=pg.mkBrush(15, 23, 42, 35),
+        )
+        self._plot_widget.addItem(self._inspection_points_item)
 
         self._plot_widget.setLabel("bottom", "chem_space_x")
         self._plot_widget.setLabel("left", "chem_space_y")
         _set_plot_range(self._plot_widget, x_values, y_values)
+        self._update_inspection_overlay(self._inspected_indices)
+
+    def _update_inspection_overlay(self, row_indices: list[int]) -> None:
+        if self._inspection_points_item is None or self._last_result is None:
+            return
+        coordinates = np.asarray(self._last_result.coordinates, dtype=float)
+        if coordinates.ndim != 2 or coordinates.shape[0] == 0:
+            self._inspection_points_item.setData(x=[], y=[])
+            return
+        valid_rows = [
+            int(row_index)
+            for row_index in row_indices
+            if 0 <= int(row_index) < coordinates.shape[0]
+            and np.isfinite(coordinates[int(row_index), 0])
+            and np.isfinite(coordinates[int(row_index), 1 if coordinates.shape[1] > 1 else 0])
+        ]
+        if not valid_rows:
+            self._inspection_points_item.setData(x=[], y=[])
+            return
+        self._inspection_points_item.setData(
+            x=[float(coordinates[row_index, 0]) for row_index in valid_rows],
+            y=[
+                float(coordinates[row_index, 1]) if coordinates.shape[1] > 1 else 0.0
+                for row_index in valid_rows
+            ],
+        )
+
+    def _publish_inspection(self, row_indices: list[int]) -> None:
+        clean_indices = sorted(
+            {
+                int(row_index)
+                for row_index in row_indices
+                if self._last_result is not None and 0 <= int(row_index) < len(self._last_result.coordinates)
+            }
+        )
+        self._inspected_indices = clean_indices
+        self._update_inspection_overlay(clean_indices)
+        self._update_inspection_list(clean_indices)
+        if self._last_annotated is None or not clean_indices:
+            self.Outputs.inspected_data.send(None)
+            return
+        self.Outputs.inspected_data.send(self._subset_table(self._last_annotated, clean_indices))
+
+    def _merged_inspection_selection(self, clicked_indices: list[int], modifiers: Qt.KeyboardModifiers) -> list[int]:
+        clean_clicked = [int(row_index) for row_index in clicked_indices]
+        if modifiers & (Qt.ControlModifier | Qt.MetaModifier):
+            merged = list(self._inspected_indices)
+            for row_index in clean_clicked:
+                if row_index in merged:
+                    merged.remove(row_index)
+                else:
+                    merged.append(row_index)
+            return merged
+        return clean_clicked
+
+    def _on_points_clicked(self, _item, points, event) -> None:
+        clicked_indices = [int(point.data()) for point in points if point.data() is not None]
+        modifiers = event.modifiers() if hasattr(event, "modifiers") else Qt.NoModifier
+        self._publish_inspection(self._merged_inspection_selection(clicked_indices, modifiers))
 
     def _annotated_table(self, result: DiversitySelectionResult) -> Table | None:
         if self.data is not None:
@@ -528,6 +821,7 @@ class OWDiversityPicker(OWWidget):
             self.Outputs.selected_data.send(None)
             self.Outputs.annotated_data.send(None)
             self.Outputs.remainder_data.send(None)
+            self.Outputs.inspected_data.send(None)
             self.Outputs.selected_molecules.send([])
             self.Outputs.remainder_molecules.send([])
             return
@@ -541,6 +835,7 @@ class OWDiversityPicker(OWWidget):
             self.Outputs.selected_data.send(None)
             self.Outputs.annotated_data.send(None)
             self.Outputs.remainder_data.send(None)
+            self.Outputs.inspected_data.send(None)
             self.Outputs.selected_molecules.send([])
             self.Outputs.remainder_molecules.send([])
             return
@@ -564,6 +859,7 @@ class OWDiversityPicker(OWWidget):
         remainder_indices = [idx for idx in range(total_count) if idx not in set(selected_indices)]
 
         annotated = self._annotated_table(result)
+        self._last_annotated = annotated
         selected_data = self._subset_table(annotated, selected_indices)
         remainder_data = self._subset_table(annotated, remainder_indices)
 
@@ -579,6 +875,7 @@ class OWDiversityPicker(OWWidget):
 
         self._summary_browser.setHtml(_summary_html(result))
         self._update_plot(result)
+        self._publish_inspection([])
 
         input_metrics = result.metrics_input
         selected_metrics = result.metrics_selected

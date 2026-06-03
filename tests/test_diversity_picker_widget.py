@@ -52,6 +52,7 @@ def test_diversity_picker_outputs_selected_subset_and_annotated_full_table():
         stack.enter_context(patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))))
         stack.enter_context(patch.object(widget.Outputs.annotated_data, "send", lambda value: sent.append(("annotated", value))))
         stack.enter_context(patch.object(widget.Outputs.remainder_data, "send", lambda value: sent.append(("remainder", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_data, "send", lambda value: sent.append(("inspected", value))))
         stack.enter_context(patch.object(widget.Outputs.selected_molecules, "send", lambda value: sent.append(("selected_molecules", value))))
         stack.enter_context(patch.object(widget.Outputs.remainder_molecules, "send", lambda value: sent.append(("remainder_molecules", value))))
         widget.set_data(table)
@@ -80,7 +81,41 @@ def test_diversity_picker_outputs_selected_subset_and_annotated_full_table():
     assert finite_ranks == [1, 2]
     assert widget._all_points_item is not None
     assert widget._selected_points_item is not None
+    assert widget._inspection_points_item is not None
     assert "PCA diversity" in widget.status_label.text()
+
+    widget.onDeleteWidget()
+    widget.close()
+
+
+def test_diversity_picker_plot_inspection_sends_inspected_subset():
+    widget = OWDiversityPicker()
+    sent: list[tuple[str, object]] = []
+    table = _demo_table()
+    widget.auto_run = False
+    widget.n_select = 2
+    widget.n_select_spin.setValue(2)
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))))
+        stack.enter_context(patch.object(widget.Outputs.annotated_data, "send", lambda value: sent.append(("annotated", value))))
+        stack.enter_context(patch.object(widget.Outputs.remainder_data, "send", lambda value: sent.append(("remainder", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_data, "send", lambda value: sent.append(("inspected", value))))
+        stack.enter_context(patch.object(widget.Outputs.selected_molecules, "send", lambda value: sent.append(("selected_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.remainder_molecules, "send", lambda value: sent.append(("remainder_molecules", value))))
+        widget.set_data(table)
+        widget.commit()
+        widget._publish_inspection([0, 2])
+        _APP.processEvents()
+
+    inspected_payloads = [value for name, value in sent if name == "inspected"]
+    inspected = inspected_payloads[-1]
+    assert inspected is not None
+    assert len(inspected) == 2
+    assert widget._inspection_list.count() == 2
+    assert widget._inspection_list.currentItem() is not None
+    assert "ethanol" in widget._inspection_browser.toPlainText().lower()
+    assert widget._inspected_indices == [0, 2]
 
     widget.onDeleteWidget()
     widget.close()

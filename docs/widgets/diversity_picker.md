@@ -21,6 +21,7 @@ Source:
 - `Selected Data` — diverse subset as Orange `Table`
 - `Annotated Data` — full table with chemical-space and diversity annotations
 - `Remainder Data` — compounds not selected
+- `Inspected Data` — compounds currently selected in the projection for inspection
 - `Selected Molecules` — diverse subset as `ChemMol` list
 - `Remainder Molecules` — remainder as `ChemMol` list
 
@@ -36,6 +37,8 @@ Source:
 - The widget projects valid compounds into `2D` with `PCA`.
 - All valid compounds are shown as circles.
 - Selected compounds are overlaid as stars.
+- Clicked compounds are outlined and shown in the `Inspection` tab with structure previews.
+- `Ctrl`-click adds or removes compounds from the current inspection selection.
 - The annotated full-table output includes:
   - `chem_space_x`
   - `chem_space_y`
