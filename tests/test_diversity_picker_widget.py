@@ -53,6 +53,7 @@ def test_diversity_picker_outputs_selected_subset_and_annotated_full_table():
         stack.enter_context(patch.object(widget.Outputs.annotated_data, "send", lambda value: sent.append(("annotated", value))))
         stack.enter_context(patch.object(widget.Outputs.remainder_data, "send", lambda value: sent.append(("remainder", value))))
         stack.enter_context(patch.object(widget.Outputs.inspected_data, "send", lambda value: sent.append(("inspected", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_molecules, "send", lambda value: sent.append(("inspected_molecules", value))))
         stack.enter_context(patch.object(widget.Outputs.selected_molecules, "send", lambda value: sent.append(("selected_molecules", value))))
         stack.enter_context(patch.object(widget.Outputs.remainder_molecules, "send", lambda value: sent.append(("remainder_molecules", value))))
         widget.set_data(table)
@@ -101,6 +102,7 @@ def test_diversity_picker_plot_inspection_sends_inspected_subset():
         stack.enter_context(patch.object(widget.Outputs.annotated_data, "send", lambda value: sent.append(("annotated", value))))
         stack.enter_context(patch.object(widget.Outputs.remainder_data, "send", lambda value: sent.append(("remainder", value))))
         stack.enter_context(patch.object(widget.Outputs.inspected_data, "send", lambda value: sent.append(("inspected", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_molecules, "send", lambda value: sent.append(("inspected_molecules", value))))
         stack.enter_context(patch.object(widget.Outputs.selected_molecules, "send", lambda value: sent.append(("selected_molecules", value))))
         stack.enter_context(patch.object(widget.Outputs.remainder_molecules, "send", lambda value: sent.append(("remainder_molecules", value))))
         widget.set_data(table)
@@ -110,8 +112,13 @@ def test_diversity_picker_plot_inspection_sends_inspected_subset():
 
     inspected_payloads = [value for name, value in sent if name == "inspected"]
     inspected = inspected_payloads[-1]
+    inspected_molecules_payloads = [value for name, value in sent if name == "inspected_molecules"]
+    inspected_molecules = inspected_molecules_payloads[-1]
     assert inspected is not None
     assert len(inspected) == 2
+    assert len(inspected_molecules) == 2
+    assert inspected_molecules[0].name == "ethanol"
+    assert inspected_molecules[0].get_prop("SMILES") == "CCO"
     assert widget._inspection_list.count() == 2
     assert widget._inspection_list.currentItem() is not None
     assert "ethanol" in widget._inspection_browser.toPlainText().lower()

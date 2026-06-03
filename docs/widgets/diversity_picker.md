@@ -22,6 +22,7 @@ Source:
 - `Annotated Data` — full table with chemical-space and diversity annotations
 - `Remainder Data` — compounds not selected
 - `Inspected Data` — compounds currently selected in the projection for inspection
+- `Inspected Molecules` — interactive plot selection as `ChemMol` list for downstream viewers
 - `Selected Molecules` — diverse subset as `ChemMol` list
 - `Remainder Molecules` — remainder as `ChemMol` list
 

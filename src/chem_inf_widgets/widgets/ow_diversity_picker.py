@@ -301,6 +301,7 @@ class OWDiversityPicker(OWWidget):
         annotated_data = Output("Annotated Data", Table)
         remainder_data = Output("Remainder Data", Table)
         inspected_data = Output("Inspected Data", Table)
+        inspected_molecules = Output("Inspected Molecules", list, auto_summary=False)
         selected_molecules = Output("Selected Molecules", list, auto_summary=False)
         remainder_molecules = Output("Remainder Molecules", list, auto_summary=False)
 
@@ -551,6 +552,29 @@ class OWDiversityPicker(OWWidget):
     @staticmethod
     def _subset_molecules(molecules: list[ChemMol], indices: list[int]) -> list[ChemMol]:
         return [molecules[idx] for idx in indices if 0 <= idx < len(molecules)]
+
+    def _inspected_molecules(self, row_indices: list[int]) -> list[ChemMol]:
+        if not row_indices:
+            return []
+
+        aligned_molecules = (
+            self.molecules
+            if len(self.molecules) == (len(self.data) if self.data is not None else len(self.molecules))
+            else []
+        )
+        if aligned_molecules:
+            return self._subset_molecules(aligned_molecules, row_indices)
+
+        inspected: list[ChemMol] = []
+        for row_index in row_indices:
+            smiles = self._row_smiles(int(row_index))
+            parsed = safe_mol_from_smiles(smiles, sanitize=True, remove_hs=True)
+            if parsed.mol is None:
+                continue
+            chem_mol = ChemMol(mol=parsed.mol, name=self._row_label(int(row_index)))
+            chem_mol.set_prop("SMILES", smiles)
+            inspected.append(chem_mol)
+        return inspected
 
     def _clear_visuals(self) -> None:
         self._summary_browser.clear()
@@ -823,8 +847,10 @@ class OWDiversityPicker(OWWidget):
         self._update_inspection_list(clean_indices)
         if self._last_annotated is None or not clean_indices:
             self.Outputs.inspected_data.send(None)
+            self.Outputs.inspected_molecules.send([])
             return
         self.Outputs.inspected_data.send(self._subset_table(self._last_annotated, clean_indices))
+        self.Outputs.inspected_molecules.send(self._inspected_molecules(clean_indices))
 
     def _merged_inspection_selection(self, clicked_indices: list[int], modifiers: Qt.KeyboardModifiers) -> list[int]:
         clean_clicked = [int(row_index) for row_index in clicked_indices]
@@ -859,6 +885,7 @@ class OWDiversityPicker(OWWidget):
             self.Outputs.annotated_data.send(None)
             self.Outputs.remainder_data.send(None)
             self.Outputs.inspected_data.send(None)
+            self.Outputs.inspected_molecules.send([])
             self.Outputs.selected_molecules.send([])
             self.Outputs.remainder_molecules.send([])
             return
@@ -873,6 +900,7 @@ class OWDiversityPicker(OWWidget):
             self.Outputs.annotated_data.send(None)
             self.Outputs.remainder_data.send(None)
             self.Outputs.inspected_data.send(None)
+            self.Outputs.inspected_molecules.send([])
             self.Outputs.selected_molecules.send([])
             self.Outputs.remainder_molecules.send([])
             return
