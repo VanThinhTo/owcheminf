@@ -181,3 +181,38 @@ def test_diversity_picker_inspection_list_refines_selection():
 
     widget.onDeleteWidget()
     widget.close()
+
+
+def test_diversity_picker_can_inspect_and_clear_picked_subset():
+    widget = OWDiversityPicker()
+    sent: list[tuple[str, object]] = []
+    table = _demo_table()
+    widget.auto_run = False
+    widget.n_select = 2
+    widget.n_select_spin.setValue(2)
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))))
+        stack.enter_context(patch.object(widget.Outputs.annotated_data, "send", lambda value: sent.append(("annotated", value))))
+        stack.enter_context(patch.object(widget.Outputs.remainder_data, "send", lambda value: sent.append(("remainder", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_data, "send", lambda value: sent.append(("inspected", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_molecules, "send", lambda value: sent.append(("inspected_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.selected_molecules, "send", lambda value: sent.append(("selected_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.remainder_molecules, "send", lambda value: sent.append(("remainder_molecules", value))))
+        widget.set_data(table)
+        widget.commit()
+        widget._inspect_picker_subset()
+        _APP.processEvents()
+        inspected_after_pick = [value for name, value in sent if name == "inspected"][-1]
+        widget._clear_inspection_selection()
+        _APP.processEvents()
+        inspected_after_clear = [value for name, value in sent if name == "inspected"][-1]
+
+    assert inspected_after_pick is not None
+    assert len(inspected_after_pick) == 2
+    assert widget._inspected_indices == []
+    assert inspected_after_clear is None
+    assert widget._inspection_list.count() == 0
+
+    widget.onDeleteWidget()
+    widget.close()

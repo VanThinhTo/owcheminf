@@ -428,12 +428,23 @@ class OWDiversityPicker(OWWidget):
 
         inspection_tab = QWidget()
         inspection_layout = QHBoxLayout(inspection_tab)
+        inspection_list_panel = QWidget()
+        inspection_list_layout = QVBoxLayout(inspection_list_panel)
+        inspection_list_layout.setContentsMargins(0, 0, 0, 0)
+        inspection_list_layout.setSpacing(8)
+        self._inspect_selected_button = QPushButton("Inspect picked subset")
+        self._inspect_selected_button.clicked.connect(self._inspect_picker_subset)
+        inspection_list_layout.addWidget(self._inspect_selected_button)
+        self._clear_inspection_button = QPushButton("Clear inspection")
+        self._clear_inspection_button.clicked.connect(self._clear_inspection_selection)
+        inspection_list_layout.addWidget(self._clear_inspection_button)
         self._inspection_list = QListWidget()
         self._inspection_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._inspection_list.currentItemChanged.connect(self._on_inspection_item_changed)
         self._inspection_list.itemSelectionChanged.connect(self._on_inspection_selection_changed)
         self._inspection_list.setMinimumWidth(260)
-        inspection_layout.addWidget(self._inspection_list, 0)
+        inspection_list_layout.addWidget(self._inspection_list, 1)
+        inspection_layout.addWidget(inspection_list_panel, 0)
 
         inspection_detail = QWidget()
         inspection_detail_layout = QVBoxLayout(inspection_detail)
@@ -530,6 +541,15 @@ class OWDiversityPicker(OWWidget):
     def _on_auto_run_toggled(self, checked: bool) -> None:
         self.auto_run = bool(checked)
         self._maybe_autorun()
+
+    def _inspect_picker_subset(self) -> None:
+        if self._last_result is None:
+            self._publish_inspection([])
+            return
+        self._publish_inspection(list(self._last_result.selected_indices))
+
+    def _clear_inspection_selection(self) -> None:
+        self._publish_inspection([])
 
     def _input_summary(self) -> str:
         table_rows = 0 if self.data is None else len(self.data)
