@@ -41,6 +41,7 @@ Source:
 - Hovering over a point shows a quick compound/rank preview.
 - Clicked compounds are outlined and shown in the `Inspection` tab with structure previews.
 - `Ctrl`-click adds or removes compounds from the current inspection selection.
+- The `Inspection` list supports multi-selection and stays synced with the plot overlay and inspection outputs.
 - The annotated full-table output includes:
   - `chem_space_x`
   - `chem_space_y`

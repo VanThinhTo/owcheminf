@@ -146,3 +146,38 @@ def test_diversity_picker_hover_text_describes_compound():
 
     widget.onDeleteWidget()
     widget.close()
+
+
+def test_diversity_picker_inspection_list_refines_selection():
+    widget = OWDiversityPicker()
+    sent: list[tuple[str, object]] = []
+    table = _demo_table()
+    widget.auto_run = False
+    widget.n_select = 2
+    widget.n_select_spin.setValue(2)
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(widget.Outputs.selected_data, "send", lambda value: sent.append(("selected", value))))
+        stack.enter_context(patch.object(widget.Outputs.annotated_data, "send", lambda value: sent.append(("annotated", value))))
+        stack.enter_context(patch.object(widget.Outputs.remainder_data, "send", lambda value: sent.append(("remainder", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_data, "send", lambda value: sent.append(("inspected", value))))
+        stack.enter_context(patch.object(widget.Outputs.inspected_molecules, "send", lambda value: sent.append(("inspected_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.selected_molecules, "send", lambda value: sent.append(("selected_molecules", value))))
+        stack.enter_context(patch.object(widget.Outputs.remainder_molecules, "send", lambda value: sent.append(("remainder_molecules", value))))
+        widget.set_data(table)
+        widget.commit()
+        widget._publish_inspection([0, 2, 3])
+        widget._inspection_list.clearSelection()
+        widget._inspection_list.item(1).setSelected(True)
+        widget._inspection_list.item(2).setSelected(True)
+        widget._on_inspection_selection_changed()
+        _APP.processEvents()
+
+    inspected_payloads = [value for name, value in sent if name == "inspected"]
+    inspected = inspected_payloads[-1]
+    assert inspected is not None
+    assert len(inspected) == 2
+    assert widget._inspected_indices == [2, 3]
+
+    widget.onDeleteWidget()
+    widget.close()

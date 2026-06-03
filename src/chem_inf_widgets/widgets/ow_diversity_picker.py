@@ -7,6 +7,7 @@ import pyqtgraph as pg
 from AnyQt.QtCore import Qt
 from AnyQt.QtGui import QPixmap
 from AnyQt.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -330,6 +331,7 @@ class OWDiversityPicker(OWWidget):
         self._selected_points_item: pg.ScatterPlotItem | None = None
         self._inspection_points_item: pg.ScatterPlotItem | None = None
         self._inspected_indices: list[int] = []
+        self._syncing_inspection_list = False
 
         root = QWidget(self.controlArea)
         layout = QVBoxLayout(root)
@@ -427,7 +429,9 @@ class OWDiversityPicker(OWWidget):
         inspection_tab = QWidget()
         inspection_layout = QHBoxLayout(inspection_tab)
         self._inspection_list = QListWidget()
+        self._inspection_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._inspection_list.currentItemChanged.connect(self._on_inspection_item_changed)
+        self._inspection_list.itemSelectionChanged.connect(self._on_inspection_selection_changed)
         self._inspection_list.setMinimumWidth(260)
         inspection_layout.addWidget(self._inspection_list, 0)
 
@@ -700,11 +704,13 @@ class OWDiversityPicker(OWWidget):
         self._inspection_browser.setHtml(self._row_detail_html(int(row_index)))
 
     def _update_inspection_list(self, row_indices: list[int]) -> None:
+        self._syncing_inspection_list = True
         self._inspection_list.blockSignals(True)
         try:
             self._inspection_list.clear()
             selected_set = set(self._last_result.selected_indices) if self._last_result is not None else set()
             selection_ranks = self._last_result.selection_ranks if self._last_result is not None else []
+            first_item: QListWidgetItem | None = None
             for row_index in row_indices:
                 label = self._row_label(row_index)
                 text = f"{int(row_index) + 1}. {label}"
@@ -715,11 +721,16 @@ class OWDiversityPicker(OWWidget):
                 item = QListWidgetItem(text)
                 item.setData(Qt.UserRole, int(row_index))
                 self._inspection_list.addItem(item)
+                item.setSelected(True)
+                if first_item is None:
+                    first_item = item
+            if first_item is not None:
+                self._inspection_list.setCurrentItem(first_item)
         finally:
             self._inspection_list.blockSignals(False)
+            self._syncing_inspection_list = False
 
         if row_indices:
-            self._inspection_list.setCurrentRow(0)
             self._update_structure_preview(int(row_indices[0]))
         else:
             self._update_structure_preview(None)
@@ -730,6 +741,31 @@ class OWDiversityPicker(OWWidget):
             return
         row_index = current.data(Qt.UserRole)
         self._update_structure_preview(None if row_index is None else int(row_index))
+
+    def _selected_inspection_rows_from_list(self) -> list[int]:
+        return sorted(
+            {
+                int(item.data(Qt.UserRole))
+                for item in self._inspection_list.selectedItems()
+                if item.data(Qt.UserRole) is not None
+            }
+        )
+
+    def _send_inspection_outputs(self, row_indices: list[int]) -> None:
+        if self._last_annotated is None or not row_indices:
+            self.Outputs.inspected_data.send(None)
+            self.Outputs.inspected_molecules.send([])
+            return
+        self.Outputs.inspected_data.send(self._subset_table(self._last_annotated, row_indices))
+        self.Outputs.inspected_molecules.send(self._inspected_molecules(row_indices))
+
+    def _on_inspection_selection_changed(self) -> None:
+        if self._syncing_inspection_list:
+            return
+        row_indices = self._selected_inspection_rows_from_list()
+        self._inspected_indices = row_indices
+        self._update_inspection_overlay(row_indices)
+        self._send_inspection_outputs(row_indices)
 
     def _update_plot(self, result: DiversitySelectionResult) -> None:
         self._plot_widget.clear()
@@ -845,12 +881,7 @@ class OWDiversityPicker(OWWidget):
         self._inspected_indices = clean_indices
         self._update_inspection_overlay(clean_indices)
         self._update_inspection_list(clean_indices)
-        if self._last_annotated is None or not clean_indices:
-            self.Outputs.inspected_data.send(None)
-            self.Outputs.inspected_molecules.send([])
-            return
-        self.Outputs.inspected_data.send(self._subset_table(self._last_annotated, clean_indices))
-        self.Outputs.inspected_molecules.send(self._inspected_molecules(clean_indices))
+        self._send_inspection_outputs(clean_indices)
 
     def _merged_inspection_selection(self, clicked_indices: list[int], modifiers: Qt.KeyboardModifiers) -> list[int]:
         clean_clicked = [int(row_index) for row_index in clicked_indices]
