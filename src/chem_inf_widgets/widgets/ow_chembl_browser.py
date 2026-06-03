@@ -836,6 +836,11 @@ class OWChemBLBrowser(OWWidget):
             self.Outputs.molecules.send([])
             return
 
+        # Send a minimal molecules table immediately so downstream widgets receive data
+        # even while property enrichment / aggregated bio fetch is still running.
+        quick_table, quick_molecules, _warning = self._build_outputs_from_molecules(self._molecules, {}, [])
+        self._send_outputs(quick_table, quick_molecules, "")
+
         ids = [m.chembl_id for m in self._molecules if m.chembl_id]
         keys = list(self.selected_prop_keys or [])
 
