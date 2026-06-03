@@ -417,6 +417,10 @@ class OWDiversityPicker(OWWidget):
         )
         self._plot_legend.setWordWrap(True)
         plot_layout.addWidget(self._plot_legend)
+        self._hover_label = QLabel("Hover over a point to preview the compound; click to inspect it.")
+        self._hover_label.setWordWrap(True)
+        self._hover_label.setStyleSheet("color:#475467;")
+        plot_layout.addWidget(self._hover_label)
         tabs.addTab(plot_tab, "Projection")
 
         inspection_tab = QWidget()
@@ -560,6 +564,7 @@ class OWDiversityPicker(OWWidget):
         self._inspection_browser.clear()
         self._structure_label.setPixmap(QPixmap())
         self._structure_label.setText("Click points in the projection to inspect structures.")
+        self._hover_label.setText("Hover over a point to preview the compound; click to inspect it.")
 
     def _row_smiles(self, row_index: int) -> str:
         if self.data is not None and 0 <= int(row_index) < len(self.data):
@@ -620,6 +625,36 @@ class OWDiversityPicker(OWWidget):
             "</ul>"
             "</body></html>"
         )
+
+    def _hover_text(self, row_index: int) -> str:
+        label = self._row_label(row_index)
+        selected_set = set(self._last_result.selected_indices) if self._last_result is not None else set()
+        selected_text = "picked" if int(row_index) in selected_set else "not picked"
+        rank_text = "no rank"
+        x_value = float("nan")
+        y_value = float("nan")
+        if self._last_result is not None and 0 <= int(row_index) < len(self._last_result.selection_ranks):
+            rank = self._last_result.selection_ranks[int(row_index)]
+            if rank is not None:
+                rank_text = f"rank #{int(rank)}"
+            coordinates = np.asarray(self._last_result.coordinates, dtype=float)
+            if coordinates.ndim == 2 and 0 <= int(row_index) < coordinates.shape[0]:
+                x_value = float(coordinates[int(row_index), 0])
+                y_value = float(coordinates[int(row_index), 1]) if coordinates.shape[1] > 1 else 0.0
+        coord_text = (
+            f"({x_value:.3f}, {y_value:.3f})"
+            if np.isfinite(x_value) and np.isfinite(y_value)
+            else "(coordinates unavailable)"
+        )
+        return f"Hover: {label}  [{selected_text}, {rank_text}]  {coord_text}"
+
+    def _on_points_hovered(self, _item, points, _event) -> None:
+        if points:
+            row_index = points[0].data()
+            if row_index is not None:
+                self._hover_label.setText(self._hover_text(int(row_index)))
+                return
+        self._hover_label.setText("Hover over a point to preview the compound; click to inspect it.")
 
     def _update_structure_preview(self, row_index: int | None) -> None:
         if row_index is None:
@@ -709,6 +744,7 @@ class OWDiversityPicker(OWWidget):
             hoverBrush=pg.mkBrush(37, 99, 235, 220),
         )
         self._all_points_item.sigClicked.connect(self._on_points_clicked)
+        self._all_points_item.sigHovered.connect(self._on_points_hovered)
         self._plot_widget.addItem(self._all_points_item)
 
         selected_rows = [index for index in result.selected_indices if 0 <= index < coordinates.shape[0]]
@@ -733,6 +769,7 @@ class OWDiversityPicker(OWWidget):
                 hoverBrush=pg.mkBrush(249, 115, 22, 255),
             )
             self._selected_points_item.sigClicked.connect(self._on_points_clicked)
+            self._selected_points_item.sigHovered.connect(self._on_points_hovered)
             self._plot_widget.addItem(self._selected_points_item)
 
         self._inspection_points_item = pg.ScatterPlotItem(

@@ -119,3 +119,23 @@ def test_diversity_picker_plot_inspection_sends_inspected_subset():
 
     widget.onDeleteWidget()
     widget.close()
+
+
+def test_diversity_picker_hover_text_describes_compound():
+    widget = OWDiversityPicker()
+    table = _demo_table()
+    widget.auto_run = False
+    widget.n_select = 2
+    widget.n_select_spin.setValue(2)
+
+    widget.set_data(table)
+    widget.commit()
+    _APP.processEvents()
+
+    text = widget._hover_text(0)
+    assert "ethanol" in text.lower()
+    assert "picked" in text.lower() or "not picked" in text.lower()
+    assert "(" in text and ")" in text
+
+    widget.onDeleteWidget()
+    widget.close()

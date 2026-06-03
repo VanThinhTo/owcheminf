@@ -37,6 +37,7 @@ Source:
 - The widget projects valid compounds into `2D` with `PCA`.
 - All valid compounds are shown as circles.
 - Selected compounds are overlaid as stars.
+- Hovering over a point shows a quick compound/rank preview.
 - Clicked compounds are outlined and shown in the `Inspection` tab with structure previews.
 - `Ctrl`-click adds or removes compounds from the current inspection selection.
 - The annotated full-table output includes:
