@@ -237,3 +237,15 @@ def test_diversity_picker_inspection_switches_to_tab_and_updates_summary():
 
     widget.onDeleteWidget()
     widget.close()
+
+
+def test_diversity_picker_hover_handler_accepts_empty_numpy_array():
+    widget = OWDiversityPicker()
+    widget._hover_label.setText("temporary")
+
+    widget._on_points_hovered(None, np.asarray([], dtype=object), None)
+
+    assert "hover over a point" in widget._hover_label.text().lower()
+
+    widget.onDeleteWidget()
+    widget.close()

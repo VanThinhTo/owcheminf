@@ -703,7 +703,11 @@ class OWDiversityPicker(OWWidget):
         return f"Hover: {label}  [{selected_text}, {rank_text}]  {coord_text}"
 
     def _on_points_hovered(self, _item, points, _event) -> None:
-        if points:
+        try:
+            has_points = points is not None and len(points) > 0
+        except TypeError:
+            has_points = points is not None
+        if has_points:
             row_index = points[0].data()
             if row_index is not None:
                 self._hover_label.setText(self._hover_text(int(row_index)))
