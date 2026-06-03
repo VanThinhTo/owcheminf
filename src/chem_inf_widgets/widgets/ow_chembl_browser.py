@@ -935,11 +935,11 @@ class OWChemBLBrowser(OWWidget):
 
     def _on_molecule_outputs_ready(self, fut) -> None:
         try:
-            table, mols = fut.result()
+            table, mols, warning = fut.result()
         except Exception as exc:
             self._invoke_slot("_on_error", (str,), f"Molecule output build failed: {exc}")
             return
-        self._invoke_slot("_send_outputs", (object, object), table, mols)
+        self._invoke_slot("_send_outputs", (object, object, str), table, mols, warning)
         self._invoke_slot(
             "_set_busy",
             (bool, str),
