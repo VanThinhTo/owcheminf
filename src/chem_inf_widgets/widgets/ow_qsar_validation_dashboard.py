@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import html
+import re
+from contextlib import suppress
+
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from AnyQt.QtCore import Qt
+from AnyQt.QtCore import pyqtSlot as Slot
 from AnyQt.QtGui import QPixmap
 from AnyQt.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -18,9 +24,10 @@ from AnyQt.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
+    QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
@@ -29,7 +36,7 @@ from Orange.data import ContinuousVariable, Domain, StringVariable, Table
 from Orange.widgets.settings import Setting
 from Orange.widgets.utils.concurrent import ThreadExecutor, methodinvoke
 from Orange.widgets.widget import Input, Output, OWWidget
-from AnyQt.QtCore import pyqtSlot as Slot
+
 try:
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 except ImportError:
@@ -38,6 +45,8 @@ except ImportError:
 from chem_inf_widgets.chemcore.services import qsar_regression_service as qsar_service
 from chem_inf_widgets.chemcore.services.qsar_diagnostics_contract import (
     SELECTION_TOOL_OPTIONS,
+)
+from chem_inf_widgets.chemcore.services.qsar_diagnostics_contract import (
     residual_reference_levels as _residual_reference_levels,
 )
 from chem_inf_widgets.chemcore.services.qsar_validation_dashboard_service import (
@@ -47,6 +56,43 @@ from chem_inf_widgets.chemcore.services.qsar_validation_dashboard_service import
 from chem_inf_widgets.widgets import qsar_diagnostics_ui
 
 pg.setConfigOptions(antialias=True)
+
+
+_OBSERVED_CANDIDATES = (
+    "observed",
+    "y_true",
+    "actual",
+    "experimental",
+    "measured",
+    "reference",
+    "target",
+    "pactivity",
+    "pic50",
+)
+_PREDICTED_CANDIDATES = (
+    "predicted",
+    "y_pred",
+    "prediction",
+    "pred",
+    "fitted",
+    "predicted_pactivity",
+)
+_SPLIT_CANDIDATES = (
+    "split",
+    "dataset",
+    "partition",
+    "subset",
+    "fold_group",
+    "set",
+)
+_ID_CANDIDATES = (
+    "compound_id",
+    "chembl_id",
+    "molecule_id",
+    "mol_id",
+    "id",
+    "name",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -77,6 +123,39 @@ def _table_to_df(data):
                 except Exception:
                     cols[v.name] = [str(x) for x in col]
     return pd.DataFrame(cols, index=range(n))
+
+
+def _norm_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(text).strip().lower())
+
+
+def _detect_column_name(df: pd.DataFrame, candidates: tuple[str, ...], *, numeric: bool | None = None) -> str | None:
+    if df is None or df.empty:
+        return None
+
+    normalized = {_norm_key(col): str(col) for col in df.columns}
+    for candidate in candidates:
+        col = normalized.get(_norm_key(candidate))
+        if col is None:
+            continue
+        if numeric is None:
+            return col
+        is_numeric = pd.api.types.is_numeric_dtype(df[col])
+        if is_numeric == numeric:
+            return col
+
+    for col in df.columns:
+        col_name = str(col)
+        key = _norm_key(col_name)
+        if not key:
+            continue
+        if any(candidate in key for candidate in map(_norm_key, candidates)):
+            if numeric is None:
+                return col_name
+            is_numeric = pd.api.types.is_numeric_dtype(df[col_name])
+            if is_numeric == numeric:
+                return col_name
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +196,73 @@ def _style_plot(pw: pg.PlotWidget) -> None:
         ax = pw.getPlotItem().getAxis(axis_name)
         ax.setPen(pg.mkPen("#CBD5E1"))
         ax.setTextPen(pg.mkPen("#475569"))
+
+
+def _count_card(title: str, value: str, subtitle: str) -> str:
+    return (
+        "<div style='display:inline-block; min-width:150px; margin:0 10px 10px 0; padding:12px 14px;"
+        "border:1px solid #d7dee8; border-radius:8px; background:#ffffff;'>"
+        f"<div style='font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:0.04em;'>{html.escape(title)}</div>"
+        f"<div style='font-size:22px; font-weight:700; color:#0f172a; margin-top:4px;'>{html.escape(value)}</div>"
+        f"<div style='font-size:11px; color:#475569; margin-top:4px;'>{html.escape(subtitle)}</div>"
+        "</div>"
+    )
+
+
+def _render_validation_summary_html(
+    result,
+    *,
+    observed_column: str,
+    predicted_column: str,
+    split_column: str,
+    id_column: str,
+) -> str:
+    summary = result.summary or {}
+    metrics = result.metrics if result.metrics is not None else pd.DataFrame()
+    diagnostics = result.diagnostics if result.diagnostics is not None else pd.DataFrame()
+    outliers = result.outliers if result.outliers is not None else pd.DataFrame()
+    overall = summary.get("overall_metrics", {}) or {}
+    split_groups = 0
+    if split_column in diagnostics.columns:
+        split_groups = int(diagnostics[split_column].dropna().astype(str).nunique())
+
+    cards = "".join(
+        [
+            _count_card("Rows", str(summary.get("n_rows", 0)), "validated prediction records"),
+            _count_card("Outliers", str(summary.get("n_outliers", 0)), "rows flagged for review"),
+            _count_card("R²", f"{float(overall.get('r2', float('nan'))):.3f}" if pd.notna(overall.get("r2")) else "n/a", "overall fit"),
+            _count_card("RMSE", f"{float(overall.get('rmse', float('nan'))):.3f}" if pd.notna(overall.get("rmse")) else "n/a", "overall prediction error"),
+            _count_card("MAE", f"{float(overall.get('mae', float('nan'))):.3f}" if pd.notna(overall.get("mae")) else "n/a", "overall absolute error"),
+        ]
+    )
+
+    notes = [
+        f"Observed column: {observed_column or 'n/a'}",
+        f"Predicted column: {predicted_column or 'n/a'}",
+        f"Split column: {split_column if split_column in diagnostics.columns else 'not used'}",
+        f"ID column: {id_column if id_column in diagnostics.columns else 'not found'}",
+        f"Residual threshold: {float(summary.get('residual_threshold', float('nan'))):.3f}" if pd.notna(summary.get("residual_threshold")) else "Residual threshold: n/a",
+        f"Z threshold: {float(summary.get('z_threshold', float('nan'))):.2f}" if pd.notna(summary.get("z_threshold")) else "Z threshold: n/a",
+        f"Split groups: {split_groups}",
+        f"Metrics rows: {len(metrics)}",
+        f"Outlier rows: {len(outliers)}",
+    ]
+    notes_html = "".join(f"<li>{html.escape(line)}</li>" for line in notes)
+
+    return (
+        "<html><body style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; "
+        "font-size: 12px; color: #0f172a; background: #f8fafc;'>"
+        "<h2 style='margin: 0 0 12px 0;'>Validation Summary</h2>"
+        f"<div>{cards}</div>"
+        "<div style='margin-top: 14px; padding: 12px 14px; border:1px solid #d7dee8; border-radius:8px; background:#ffffff;'>"
+        "<div style='font-size:13px; font-weight:600; margin-bottom:8px;'>Configuration and coverage</div>"
+        f"<ul style='margin:0; padding-left:18px; color:#334155;'>{notes_html}</ul>"
+        "</div>"
+        "<p style='margin-top:14px; color:#475569;'>"
+        "Use the Diagnostics tab for visual selection and the Outliers tab for row-wise review of flagged compounds."
+        "</p>"
+        "</body></html>"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +318,10 @@ class OWQSARValidationDashboard(OWWidget):
         self._executor = ThreadExecutor()
         self._task = None
         self._diagnostics_table = None
+        self._diagnostics_df = None
+        self._outliers_df = None
+        self._summary_result = None
+        self._syncing_outliers_table = False
         self._diagnostic_selectors = {}
         self._diagnostic_context = None
         self._diagnostic_canvas = None
@@ -316,6 +466,48 @@ class OWQSARValidationDashboard(OWWidget):
         self.selection_tool = int(index)
         self._refresh_selector_modes()
 
+    @staticmethod
+    def _set_line_edit_text(line_edit: QLineEdit, text: str) -> None:
+        if line_edit.text() == text:
+            return
+        was_blocked = line_edit.blockSignals(True)
+        line_edit.setText(text)
+        line_edit.blockSignals(was_blocked)
+
+    def _autodetect_prediction_columns(self, data: Table) -> None:
+        df = _table_to_df(data)
+        if df is None or df.empty:
+            return
+
+        detected_observed = _detect_column_name(df, _OBSERVED_CANDIDATES, numeric=True)
+        detected_predicted = _detect_column_name(df, _PREDICTED_CANDIDATES, numeric=True)
+        detected_split = _detect_column_name(df, _SPLIT_CANDIDATES, numeric=None)
+        detected_id = _detect_column_name(df, _ID_CANDIDATES, numeric=None)
+
+        defaults = {
+            "observed_column": "observed",
+            "predicted_column": "predicted",
+            "split_column": "split",
+            "id_column": "compound_id",
+        }
+        updates = [
+            ("observed_column", detected_observed, self._le_observed),
+            ("predicted_column", detected_predicted, self._le_predicted),
+            ("split_column", detected_split, self._le_split),
+            ("id_column", detected_id, self._le_id),
+        ]
+        available = {str(col) for col in df.columns}
+        for attr_name, detected_value, line_edit in updates:
+            current_value = getattr(self, attr_name, "").strip()
+            should_replace = (
+                (not current_value)
+                or (current_value not in available)
+                or (current_value == defaults[attr_name] and detected_value is not None and detected_value != current_value)
+            )
+            if detected_value and should_replace:
+                setattr(self, attr_name, detected_value)
+                self._set_line_edit_text(line_edit, detected_value)
+
     def _set_chip_ok(self, text: str):
         self._status_chip.setText(text)
         self._status_chip.setStyleSheet(
@@ -343,7 +535,17 @@ class OWQSARValidationDashboard(OWWidget):
         self._tabs = QTabWidget()
         ma_layout.addWidget(self._tabs)
 
-        # Tab 1: Diagnostics
+        # Tab 1: Summary
+        self._tab_summary = QWidget()
+        summary_layout = QVBoxLayout()
+        self._tab_summary.setLayout(summary_layout)
+        self._summary_browser = QTextBrowser()
+        self._summary_browser.setOpenExternalLinks(False)
+        self._summary_browser.setHtml("<p><i>Awaiting validation results.</i></p>")
+        summary_layout.addWidget(self._summary_browser)
+        self._tabs.addTab(self._tab_summary, "Summary")
+
+        # Tab 2: Diagnostics
         self._tab_diagnostics = QWidget()
         t1_layout = QVBoxLayout()
         self._tab_diagnostics.setLayout(t1_layout)
@@ -378,7 +580,7 @@ class OWQSARValidationDashboard(OWWidget):
         t1_layout.addWidget(self._selection_gallery_scroll, 2)
         self._tabs.addTab(self._tab_diagnostics, "Diagnostics")
 
-        # Tab 2: Selected compounds
+        # Tab 3: Selected compounds
         self._tab_selected = QWidget()
         t2_layout = QVBoxLayout()
         self._tab_selected.setLayout(t2_layout)
@@ -389,7 +591,7 @@ class OWQSARValidationDashboard(OWWidget):
         t2_layout.addWidget(self._selected_table)
         self._tabs.addTab(self._tab_selected, "Selected")
 
-        # Tab 3: Metrics
+        # Tab 4: Metrics
         self._tab_metrics = QWidget()
         t3_layout = QVBoxLayout()
         self._tab_metrics.setLayout(t3_layout)
@@ -407,7 +609,7 @@ class OWQSARValidationDashboard(OWWidget):
             t3_layout.addWidget(pw)
         self._tabs.addTab(self._tab_metrics, "Metrics")
 
-        # Tab 4: Outliers
+        # Tab 5: Outliers
         self._tab_outliers = QWidget()
         t4_layout = QVBoxLayout()
         self._tab_outliers.setLayout(t4_layout)
@@ -418,7 +620,10 @@ class OWQSARValidationDashboard(OWWidget):
         )
         self._outliers_table.setAlternatingRowColors(True)
         self._outliers_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._outliers_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._outliers_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._outliers_table.horizontalHeader().setStretchLastSection(True)
+        self._outliers_table.itemSelectionChanged.connect(self._on_outlier_selection_changed)
         t4_layout.addWidget(self._outliers_table)
         self._tabs.addTab(self._tab_outliers, "Outliers")
         self._show_selection_gallery_placeholder("Validate predictions, then select points on the diagnostics plot.")
@@ -433,7 +638,9 @@ class OWQSARValidationDashboard(OWWidget):
         self._predictions_data = data
         if data is None:
             self._set_chip_ok("No data")
+            self._summary_browser.setHtml("<p><i>Awaiting validation results.</i></p>")
         else:
+            self._autodetect_prediction_columns(data)
             self._set_chip_ok(f"{len(data)} rows")
         if self.auto_run:
             self.commit()
@@ -463,14 +670,13 @@ class OWQSARValidationDashboard(OWWidget):
         self.Outputs.selected_compounds.send(None)
         self._update_selected_table(None)
         self._reset_diagnostics_view("Validation in progress — diagnostics will appear when the run is ready.")
+        self._summary_browser.setHtml("<p><i>Validation in progress...</i></p>")
 
         df = _table_to_df(self._predictions_data)
         threshold = None
         if str(self.residual_threshold).strip():
-            try:
+            with suppress(ValueError):
                 threshold = float(str(self.residual_threshold).strip())
-            except ValueError:
-                pass
 
         cfg = QSARValidationConfig(
             observed_column=self.observed_column.strip() or "observed",
@@ -503,7 +709,19 @@ class OWQSARValidationDashboard(OWWidget):
 
         # Reconstruct predictions df from diagnostics (contains obs, pred, residual, id, split)
         diag_df = result.diagnostics
+        self._diagnostics_df = diag_df.copy() if diag_df is not None else None
+        self._outliers_df = result.outliers.copy() if result.outliers is not None else None
+        self._summary_result = result
         self._diagnostics_table = _dataframe_to_orange(result.diagnostics)
+        self._summary_browser.setHtml(
+            _render_validation_summary_html(
+                result,
+                observed_column=self.observed_column.strip() or "observed",
+                predicted_column=self.predicted_column.strip() or "predicted",
+                split_column=self.split_column.strip() or "split",
+                id_column=self.id_column.strip() or "compound_id",
+            )
+        )
 
         self._update_diagnostics(diag_df)
         self._update_metrics(result.metrics)
@@ -522,11 +740,15 @@ class OWQSARValidationDashboard(OWWidget):
         self._task = None
         self._btn_validate.setEnabled(True)
         self._progress.setVisible(False)
-        self._set_chip_error(f"Error")
+        self._set_chip_error("Error")
         self._send_nones()
+        self._summary_browser.setHtml(f"<p><b>Validation failed.</b></p><p>{html.escape(message)}</p>")
 
     def _send_nones(self):
         self._diagnostics_table = None
+        self._diagnostics_df = None
+        self._outliers_df = None
+        self._summary_result = None
         self.Outputs.validation_metrics.send(None)
         self.Outputs.residual_diagnostics.send(None)
         self.Outputs.outlier_records.send(None)
@@ -534,6 +756,7 @@ class OWQSARValidationDashboard(OWWidget):
         self.Outputs.selected_compounds.send(None)
         self._update_selected_table(None)
         self._reset_diagnostics_view("Awaiting validation results to render diagnostics.")
+        self._summary_browser.setHtml("<p><i>Awaiting validation results.</i></p>")
 
     # ------------------------------------------------------------------
     # Plot update helpers
@@ -814,6 +1037,8 @@ class OWQSARValidationDashboard(OWWidget):
         self._update_selection_gallery(payload.gallery)
         self._update_selected_table(payload.selected_table)
         self._diagnostics_hint.setText(payload.status_text)
+        if payload.selected_table is not None and len(payload.selected_table) > 0:
+            self._tabs.setCurrentWidget(self._tab_selected)
 
     def _clear_selection_gallery(self):
         while self._selection_gallery_layout.count():
@@ -917,12 +1142,12 @@ class OWQSARValidationDashboard(OWWidget):
 
         colors = [(37, 99, 235, 210), (234, 88, 12, 210)]
 
-        for pw, metric_col, metric_label in (
+        for pw, metric_col, _metric_label in (
             (self._pw_r2, "r2", "R\u00b2"),
             (self._pw_rmse, "rmse", "RMSE"),
             (self._pw_mae, "mae", "MAE"),
         ):
-            for i, (grp, row) in enumerate(metrics_df.iterrows()):
+            for i, (_grp, row) in enumerate(metrics_df.iterrows()):
                 val = float(row[metric_col]) if not pd.isna(row[metric_col]) else 0.0
                 color = colors[i % len(colors)]
                 bar = pg.BarGraphItem(
@@ -947,9 +1172,15 @@ class OWQSARValidationDashboard(OWWidget):
 
     def _update_outliers(self, outliers_df: pd.DataFrame):
         tbl = self._outliers_table
+        self._syncing_outliers_table = True
+        tbl.blockSignals(True)
+        tbl.clearSelection()
         tbl.setRowCount(0)
 
         if outliers_df is None or outliers_df.empty:
+            self._outliers_df = None
+            tbl.blockSignals(False)
+            self._syncing_outliers_table = False
             return
 
         col_map = {
@@ -957,15 +1188,20 @@ class OWQSARValidationDashboard(OWWidget):
             1: self.observed_column.strip() or "observed",
             2: self.predicted_column.strip() or "predicted",
             3: "residual",
-            4: "z_score",
-            5: "flag",
+            4: "residual_z",
+            5: "validation_flag",
         }
 
-        # Fall back gracefully for missing columns
-        available = set(outliers_df.columns)
+        work_df = outliers_df.copy()
+        if "abs_residual" in work_df.columns:
+            work_df = work_df.sort_values("abs_residual", ascending=False)
+        self._outliers_df = work_df
 
-        tbl.setRowCount(len(outliers_df))
-        for row_idx, (_, row) in enumerate(outliers_df.iterrows()):
+        # Fall back gracefully for missing columns
+        available = set(work_df.columns)
+
+        tbl.setRowCount(len(work_df))
+        for row_idx, (_, row) in enumerate(work_df.iterrows()):
             for col_idx, col_name in col_map.items():
                 if col_name in available:
                     val = row[col_name]
@@ -977,3 +1213,15 @@ class OWQSARValidationDashboard(OWWidget):
                 tbl.setItem(row_idx, col_idx, item)
 
         tbl.resizeColumnsToContents()
+        tbl.blockSignals(False)
+        self._syncing_outliers_table = False
+
+    def _on_outlier_selection_changed(self) -> None:
+        if self._syncing_outliers_table or self._outliers_df is None or self._outliers_df.empty:
+            return
+        selected_rows = sorted({index.row() for index in self._outliers_table.selectionModel().selectedRows()})
+        if not selected_rows:
+            self._publish_selection(np.array([], dtype=int))
+            return
+        source_indices = self._outliers_df.iloc[selected_rows].index.to_numpy(dtype=int)
+        self._publish_selection(source_indices)
