@@ -409,6 +409,7 @@ class OWDiversityPicker(OWWidget):
         self._plot_widget = _styled_plot("Chemical Space Projection")
 
         tabs = QTabWidget()
+        self._tabs = tabs
         tabs.addTab(self._summary_browser, "Summary")
 
         plot_tab = QWidget()
@@ -432,6 +433,10 @@ class OWDiversityPicker(OWWidget):
         inspection_list_layout = QVBoxLayout(inspection_list_panel)
         inspection_list_layout.setContentsMargins(0, 0, 0, 0)
         inspection_list_layout.setSpacing(8)
+        self._inspection_summary_label = QLabel("No compounds are currently inspected.")
+        self._inspection_summary_label.setWordWrap(True)
+        self._inspection_summary_label.setStyleSheet("color:#475467;")
+        inspection_list_layout.addWidget(self._inspection_summary_label)
         self._inspect_selected_button = QPushButton("Inspect picked subset")
         self._inspect_selected_button.clicked.connect(self._inspect_picker_subset)
         inspection_list_layout.addWidget(self._inspect_selected_button)
@@ -459,7 +464,7 @@ class OWDiversityPicker(OWWidget):
         inspection_detail_layout.addWidget(self._structure_label, 1)
         inspection_detail_layout.addWidget(self._inspection_browser, 1)
         inspection_layout.addWidget(inspection_detail, 1)
-        tabs.addTab(inspection_tab, "Inspection")
+        self._inspection_tab_index = tabs.addTab(inspection_tab, "Inspection")
 
         self.mainArea.layout().addWidget(tabs)
 
@@ -609,6 +614,7 @@ class OWDiversityPicker(OWWidget):
         self._last_annotated = None
         self._inspected_indices = []
         self._inspection_list.clear()
+        self._inspection_summary_label.setText("No compounds are currently inspected.")
         self._inspection_browser.clear()
         self._structure_label.setPixmap(QPixmap())
         self._structure_label.setText("Click points in the projection to inspect structures.")
@@ -749,6 +755,15 @@ class OWDiversityPicker(OWWidget):
         finally:
             self._inspection_list.blockSignals(False)
             self._syncing_inspection_list = False
+
+        selected_set = set(self._last_result.selected_indices) if self._last_result is not None else set()
+        n_picked = sum(1 for row_index in row_indices if row_index in selected_set)
+        if row_indices:
+            self._inspection_summary_label.setText(
+                f"Inspecting {len(row_indices)} compound(s); {n_picked} from the diversity-picked subset."
+            )
+        else:
+            self._inspection_summary_label.setText("No compounds are currently inspected.")
 
         if row_indices:
             self._update_structure_preview(int(row_indices[0]))
@@ -901,6 +916,8 @@ class OWDiversityPicker(OWWidget):
         self._inspected_indices = clean_indices
         self._update_inspection_overlay(clean_indices)
         self._update_inspection_list(clean_indices)
+        if clean_indices:
+            self._tabs.setCurrentIndex(self._inspection_tab_index)
         self._send_inspection_outputs(clean_indices)
 
     def _merged_inspection_selection(self, clicked_indices: list[int], modifiers: Qt.KeyboardModifiers) -> list[int]:

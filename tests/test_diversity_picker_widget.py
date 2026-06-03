@@ -216,3 +216,24 @@ def test_diversity_picker_can_inspect_and_clear_picked_subset():
 
     widget.onDeleteWidget()
     widget.close()
+
+
+def test_diversity_picker_inspection_switches_to_tab_and_updates_summary():
+    widget = OWDiversityPicker()
+    table = _demo_table()
+    widget.auto_run = False
+    widget.n_select = 2
+    widget.n_select_spin.setValue(2)
+
+    widget.set_data(table)
+    widget.commit()
+    widget._publish_inspection([0, 2])
+    _APP.processEvents()
+
+    assert widget._tabs.currentIndex() == widget._inspection_tab_index
+    summary_text = widget._inspection_summary_label.text().lower()
+    assert "inspecting 2 compound" in summary_text
+    assert "from the diversity-picked subset" in summary_text
+
+    widget.onDeleteWidget()
+    widget.close()

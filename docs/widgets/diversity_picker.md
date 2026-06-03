@@ -43,6 +43,7 @@ Source:
 - `Ctrl`-click adds or removes compounds from the current inspection selection.
 - The `Inspection` list supports multi-selection and stays synced with the plot overlay and inspection outputs.
 - `Inspect picked subset` loads the current diversity-picked star set into the inspection view in one step.
+- Any non-empty inspection selection automatically opens the `Inspection` tab and shows a compact count summary.
 - The annotated full-table output includes:
   - `chem_space_x`
   - `chem_space_y`
