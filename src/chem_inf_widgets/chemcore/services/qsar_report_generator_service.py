@@ -10,6 +10,11 @@ from typing import Any, Optional
 
 import pandas as pd
 
+try:
+    import numpy as np
+except Exception:  # pragma: no cover - numpy is expected through pandas/sklearn stacks
+    np = None
+
 
 @dataclass(frozen=True)
 class QSARReportConfig:
@@ -162,8 +167,8 @@ def _detect_column(df: Optional[pd.DataFrame], candidates: list[str]) -> str | N
 def _prediction_diagnostics(predictions: Optional[pd.DataFrame]) -> dict[str, Any]:
     if predictions is None or predictions.empty:
         return {}
-    obs = _detect_column(predictions, ["observed", "y_true", "actual", "experimental", "pActivity"])
-    pred = _detect_column(predictions, ["predicted", "y_pred", "prediction", "predicted_pActivity"])
+    obs = _detect_column(predictions, ["observed", "y_true", "actual", "actual_value", "experimental", "measured", "pActivity", "activity"])
+    pred = _detect_column(predictions, ["predicted", "y_pred", "prediction", "predicted_value", "predicted_pActivity", "predicted_activity"])
     split = _detect_column(predictions, ["split", "dataset", "partition"])
     residual = _detect_column(predictions, ["residual", "error", "prediction_error"])
     out: dict[str, Any] = {"observed_column": obs, "predicted_column": pred, "split_column": split, "residual_column": residual}
@@ -223,18 +228,62 @@ def _ad_profile(ad_summary: Optional[pd.DataFrame]) -> dict[str, Any]:
         if val is not None:
             out["coverage"] = val
             break
-    bool_col = _detect_column(ad_summary, ["AD_in_domain", "in_domain", "within_ad"])
+
+    bool_col = _detect_column(ad_summary, ["AD_in_domain", "ad_in_domain", "in_domain", "within_ad"])
+    outlier_col = _detect_column(ad_summary, ["ad_outlier", "outlier", "outside_ad"])
+    confidence_col = _detect_column(ad_summary, ["ad_confidence", "confidence", "reliability"])
+    reason_col = _detect_column(ad_summary, ["ad_reason", "reason", "review_reason"])
+    leverage_col = _detect_column(ad_summary, ["ad_leverage", "leverage"])
+    leverage_thr_col = _detect_column(ad_summary, ["ad_leverage_threshold", "h_star", "leverage_threshold"])
+    distance_col = _detect_column(ad_summary, ["ad_knn_distance", "knn_distance", "distance"])
+    distance_thr_col = _detect_column(ad_summary, ["ad_distance_threshold", "knn_threshold", "distance_threshold"])
+
     if bool_col:
         s = ad_summary[bool_col]
         if s.dtype == bool:
-            out["coverage"] = float(s.mean())
-            out["out_of_domain_count"] = int((~s).sum())
+            in_domain = s.fillna(False).astype(bool)
+        elif pd.api.types.is_numeric_dtype(s):
+            in_domain = pd.to_numeric(s, errors="coerce").fillna(0).astype(float) > 0
         else:
-            low = s.astype(str).str.lower()
-            in_domain = low.isin(["true", "1", "yes", "in", "in_domain"])
-            if in_domain.any():
-                out["coverage"] = float(in_domain.mean())
-                out["out_of_domain_count"] = int((~in_domain).sum())
+            low = s.astype(str).str.lower().str.strip()
+            in_domain = low.isin(["true", "1", "yes", "in", "inside", "in_domain", "within"])
+        out["coverage"] = float(in_domain.mean()) if len(in_domain) else None
+        out["out_of_domain_count"] = int((~in_domain).sum())
+    elif outlier_col:
+        s = ad_summary[outlier_col]
+        if pd.api.types.is_numeric_dtype(s) or s.dtype == bool:
+            outlier = pd.to_numeric(s, errors="coerce").fillna(0).astype(float) > 0
+        else:
+            outlier = s.astype(str).str.lower().str.strip().isin(["true", "1", "yes", "out", "outside"])
+        out["out_of_domain_count"] = int(outlier.sum())
+        out["coverage"] = float(1.0 - outlier.mean()) if len(outlier) else None
+
+    if confidence_col:
+        out["confidence_counts"] = ad_summary[confidence_col].astype(str).str.lower().value_counts().to_dict()
+    if reason_col:
+        out["top_reasons"] = ad_summary[reason_col].astype(str).value_counts().head(5).to_dict()
+    if leverage_col:
+        leverage = pd.to_numeric(ad_summary[leverage_col], errors="coerce").dropna()
+        if len(leverage):
+            out["max_leverage"] = float(leverage.max())
+            out["median_leverage"] = float(leverage.median())
+    if leverage_col and leverage_thr_col:
+        lev = pd.to_numeric(ad_summary[leverage_col], errors="coerce")
+        thr = pd.to_numeric(ad_summary[leverage_thr_col], errors="coerce").replace(0, pd.NA)
+        ratio = (lev / thr).replace([float("inf"), -float("inf")], pd.NA).dropna()
+        if len(ratio):
+            out["max_leverage_ratio"] = float(ratio.max())
+    if distance_col:
+        dist = pd.to_numeric(ad_summary[distance_col], errors="coerce").dropna()
+        if len(dist):
+            out["median_knn_distance"] = float(dist.median())
+            out["max_knn_distance"] = float(dist.max())
+    if distance_col and distance_thr_col:
+        dist = pd.to_numeric(ad_summary[distance_col], errors="coerce")
+        thr = pd.to_numeric(ad_summary[distance_thr_col], errors="coerce").replace(0, pd.NA)
+        ratio = (dist / thr).replace([float("inf"), -float("inf")], pd.NA).dropna()
+        if len(ratio):
+            out["max_distance_ratio"] = float(ratio.max())
     return out
 
 
@@ -253,6 +302,309 @@ def _explanation_profile(explanation_summary: Optional[pd.DataFrame]) -> dict[st
         out["top_feature_pairs"] = [(str(r[feature_col]), float(r[value_col])) for _, r in tmp.iterrows()]
     return out
 
+
+
+def _to_numeric_series(df: Optional[pd.DataFrame], column: str | None) -> pd.Series:
+    if df is None or df.empty or column is None or column not in df.columns:
+        return pd.Series(dtype=float)
+    return pd.to_numeric(df[column], errors="coerce")
+
+
+def _plotly_div(fig: Any, *, include_js: bool) -> str:
+    try:
+        import plotly.io as pio
+    except Exception:
+        return ""
+    return pio.to_html(
+        fig,
+        include_plotlyjs="cdn" if include_js else False,
+        full_html=False,
+        config={"responsive": True, "displaylogo": False, "toImageButtonOptions": {"format": "png", "scale": 2}},
+    )
+
+
+def _plotly_template_layout(fig: Any, *, title: str, height: int = 420) -> Any:
+    fig.update_layout(
+        template="plotly_white",
+        title={"text": title, "x": 0.02, "xanchor": "left"},
+        height=height,
+        margin={"l": 60, "r": 24, "t": 70, "b": 56},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1},
+        font={"family": "Arial, sans-serif", "size": 13},
+    )
+    return fig
+
+
+def _split_name(value: Any) -> str:
+    key = _norm_key(value)
+    if key in {"", "nan", "none"}:
+        return "All"
+    if key.startswith("train"):
+        return "Train"
+    if key.startswith("test"):
+        return "Test"
+    if key in {"cv", "cross_validation", "validation"}:
+        return "CV/validation"
+    if key.startswith("external"):
+        return "External"
+    return str(value)
+
+
+def _prediction_plot_frame(predictions: Optional[pd.DataFrame]) -> tuple[pd.DataFrame, dict[str, str | None]]:
+    if predictions is None or predictions.empty:
+        return pd.DataFrame(), {}
+    obs = _detect_column(predictions, ["observed", "y_true", "actual", "actual_value", "experimental", "measured", "reference", "pActivity", "activity"])
+    pred = _detect_column(predictions, ["predicted", "y_pred", "prediction", "predicted_value", "predicted_pActivity", "predicted_activity", "estimate"])
+    split = _detect_column(predictions, ["split", "dataset", "partition", "group", "subset"])
+    residual = _detect_column(predictions, ["residual", "error", "prediction_error", "obs_minus_pred", "signed_error"])
+    compound = _detect_column(predictions, ["compound_id", "id", "name", "molecule_id", "smiles"])
+    if obs is None or pred is None:
+        return pd.DataFrame(), {"observed": obs, "predicted": pred, "split": split, "residual": residual, "compound_id": compound}
+    frame = pd.DataFrame({
+        "observed": _to_numeric_series(predictions, obs),
+        "predicted": _to_numeric_series(predictions, pred),
+    })
+    if residual and residual in predictions.columns:
+        frame["residual"] = _to_numeric_series(predictions, residual)
+    else:
+        frame["residual"] = frame["observed"] - frame["predicted"]
+    if split and split in predictions.columns:
+        frame["split"] = predictions[split].map(_split_name).astype(str)
+    else:
+        frame["split"] = "All"
+    if compound and compound in predictions.columns:
+        frame["compound_id"] = predictions[compound].astype(str)
+    else:
+        frame["compound_id"] = [f"row {i + 1}" for i in range(len(predictions))]
+    frame = frame.replace([float("inf"), -float("inf")], pd.NA).dropna(subset=["observed", "predicted"])
+    return frame, {"observed": obs, "predicted": pred, "split": split, "residual": residual, "compound_id": compound}
+
+
+def _metrics_long_frame(metrics: Optional[pd.DataFrame]) -> pd.DataFrame:
+    lookup = _metric_lookup(metrics)
+    rows: list[dict[str, Any]] = []
+    aliases = {
+        "R²/Q²": ["r2", "r_2", "q2", "q_2", "cv_r2"],
+        "RMSE": ["rmse"],
+        "MAE": ["mae"],
+        "CCC": ["ccc", "concordance_correlation_coefficient"],
+    }
+    for split in ["train", "test", "external", "cv", "validation", ""]:
+        label = "Overall" if not split else _split_name(split)
+        for metric, names in aliases.items():
+            value = _first_metric(lookup, names, [split])
+            if value is not None and math.isfinite(float(value)):
+                rows.append({"split": label, "metric": metric, "value": float(value)})
+    return pd.DataFrame(rows).drop_duplicates() if rows else pd.DataFrame(columns=["split", "metric", "value"])
+
+
+def _ad_plot_frame(ad_summary: Optional[pd.DataFrame]) -> pd.DataFrame:
+    if ad_summary is None or ad_summary.empty:
+        return pd.DataFrame()
+    leverage_ratio_col = _detect_column(ad_summary, ["AD_leverage_ratio", "ad_leverage_ratio", "leverage_ratio"])
+    knn_ratio_col = _detect_column(ad_summary, ["AD_knn_ratio", "ad_knn_ratio", "ad_distance_ratio", "distance_ratio"])
+    maha_ratio_col = _detect_column(ad_summary, ["AD_maha_ratio", "AD_mahalanobis_ratio", "ad_mahalanobis_ratio", "mahalanobis_ratio"])
+    in_domain_col = _detect_column(ad_summary, ["AD_in_domain", "ad_in_domain", "in_domain", "within_ad"])
+    conf_col = _detect_column(ad_summary, ["AD_confidence", "ad_confidence", "confidence", "reliability"])
+    reason_col = _detect_column(ad_summary, ["AD_reason", "ad_reason", "reason", "review_reason"])
+    compound_col = _detect_column(ad_summary, ["compound_id", "id", "name", "molecule_id", "smiles"])
+    frame = pd.DataFrame(index=ad_summary.index)
+    frame["leverage_ratio"] = _to_numeric_series(ad_summary, leverage_ratio_col) if leverage_ratio_col else pd.NA
+    frame["knn_ratio"] = _to_numeric_series(ad_summary, knn_ratio_col) if knn_ratio_col else pd.NA
+    frame["mahalanobis_ratio"] = _to_numeric_series(ad_summary, maha_ratio_col) if maha_ratio_col else pd.NA
+    if in_domain_col and in_domain_col in ad_summary.columns:
+        frame["in_domain"] = ad_summary[in_domain_col].astype(str)
+    else:
+        ratio_cols = [c for c in ["leverage_ratio", "knn_ratio", "mahalanobis_ratio"] if c in frame]
+        if ratio_cols:
+            frame["in_domain"] = frame[ratio_cols].apply(lambda r: "inside" if pd.to_numeric(r, errors="coerce").max(skipna=True) <= 1 else "outside", axis=1)
+        else:
+            frame["in_domain"] = "unknown"
+    if conf_col and conf_col in ad_summary.columns:
+        frame["confidence"] = ad_summary[conf_col].astype(str)
+    else:
+        frame["confidence"] = "unknown"
+    if reason_col and reason_col in ad_summary.columns:
+        frame["reason"] = ad_summary[reason_col].astype(str)
+    else:
+        frame["reason"] = ""
+    if compound_col and compound_col in ad_summary.columns:
+        frame["compound_id"] = ad_summary[compound_col].astype(str)
+    else:
+        frame["compound_id"] = [f"row {i + 1}" for i in range(len(ad_summary))]
+    return frame.replace([float("inf"), -float("inf")], pd.NA)
+
+
+def _importance_plot_frame(explanation_summary: Optional[pd.DataFrame], *, max_features: int = 25) -> pd.DataFrame:
+    if explanation_summary is None or explanation_summary.empty:
+        return pd.DataFrame(columns=["feature", "importance"])
+    feature_col = _detect_column(explanation_summary, ["feature", "feature_name", "descriptor", "name"])
+    value_col = _detect_column(explanation_summary, ["importance", "score", "mean_abs_shap", "mean_importance", "coefficient", "normalized_importance", "value"])
+    if not feature_col or not value_col:
+        return pd.DataFrame(columns=["feature", "importance"])
+    frame = explanation_summary[[feature_col, value_col]].copy()
+    frame.columns = ["feature", "importance"]
+    frame["importance"] = pd.to_numeric(frame["importance"], errors="coerce")
+    frame = frame.dropna(subset=["importance"])
+    if frame.empty:
+        return frame
+    frame["abs_importance"] = frame["importance"].abs()
+    return frame.sort_values("abs_importance", ascending=False).head(max_features).sort_values("abs_importance")
+
+
+def _build_interactive_plotly_dashboard_html(
+    *,
+    predictions: Optional[pd.DataFrame],
+    metrics: Optional[pd.DataFrame],
+    ad_summary: Optional[pd.DataFrame],
+    explanation_summary: Optional[pd.DataFrame],
+) -> tuple[str, list[str]]:
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except Exception:
+        return (
+            "<section class='plotly-dashboard'><h2>Interactive QSAR visual analytics</h2>"
+            "<p><em>Plotly is not installed. Install optional dependency <code>plotly</code> to enable interactive report graphs.</em></p></section>",
+            ["plotly_missing"],
+        )
+
+    divs: list[str] = []
+    notes: list[str] = []
+    include_js = True
+
+    pred_frame, pred_cols = _prediction_plot_frame(predictions)
+    if not pred_frame.empty:
+        fig = go.Figure()
+        for split, sub in pred_frame.groupby("split", sort=False):
+            fig.add_trace(go.Scatter(
+                x=sub["observed"],
+                y=sub["predicted"],
+                mode="markers",
+                name=str(split),
+                customdata=sub[["compound_id", "residual"]],
+                hovertemplate="Compound: %{customdata[0]}<br>Observed: %{x:.4g}<br>Predicted: %{y:.4g}<br>Residual: %{customdata[1]:.4g}<extra>%{fullData.name}</extra>",
+            ))
+        vals = pd.concat([pred_frame["observed"], pred_frame["predicted"]]).dropna()
+        if not vals.empty:
+            lo, hi = float(vals.min()), float(vals.max())
+            pad = max((hi - lo) * 0.05, 0.5)
+            fig.add_trace(go.Scatter(x=[lo - pad, hi + pad], y=[lo - pad, hi + pad], mode="lines", name="Ideal y=x", line={"dash": "dash", "width": 2}))
+        if np is not None and len(pred_frame) >= 3:
+            try:
+                coeff = np.polyfit(pred_frame["observed"].astype(float), pred_frame["predicted"].astype(float), 1)
+                xs = np.linspace(float(pred_frame["observed"].min()), float(pred_frame["observed"].max()), 50)
+                ys = coeff[0] * xs + coeff[1]
+                fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", name=f"Fit slope={coeff[0]:.2f}", line={"dash": "dot"}))
+            except Exception:
+                pass
+        fig.update_xaxes(title_text=f"Observed ({pred_cols.get('observed') or 'detected'})")
+        fig.update_yaxes(title_text=f"Predicted ({pred_cols.get('predicted') or 'detected'})", scaleanchor="x", scaleratio=1)
+        _plotly_template_layout(fig, title="Observed vs predicted values", height=520)
+        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        notes.append("observed_predicted")
+
+        fig = make_subplots(rows=1, cols=2, subplot_titles=("Residuals vs predicted", "Residual distribution"), column_widths=[0.66, 0.34])
+        for split, sub in pred_frame.groupby("split", sort=False):
+            fig.add_trace(go.Scatter(
+                x=sub["predicted"], y=sub["residual"], mode="markers", name=str(split),
+                customdata=sub[["compound_id", "observed"]],
+                hovertemplate="Compound: %{customdata[0]}<br>Predicted: %{x:.4g}<br>Residual: %{y:.4g}<br>Observed: %{customdata[1]:.4g}<extra>%{fullData.name}</extra>",
+            ), row=1, col=1)
+            fig.add_trace(go.Histogram(x=sub["residual"], name=f"{split} residuals", opacity=0.65, showlegend=False), row=1, col=2)
+        fig.add_hline(y=0, line_dash="dash", line_width=2, row=1, col=1)
+        res_std = float(pred_frame["residual"].std()) if len(pred_frame) > 2 else None
+        if res_std and math.isfinite(res_std) and res_std > 0:
+            fig.add_hline(y=2 * res_std, line_dash="dot", line_width=1, row=1, col=1)
+            fig.add_hline(y=-2 * res_std, line_dash="dot", line_width=1, row=1, col=1)
+        fig.update_xaxes(title_text="Predicted", row=1, col=1)
+        fig.update_yaxes(title_text="Observed − predicted residual", row=1, col=1)
+        fig.update_xaxes(title_text="Residual", row=1, col=2)
+        fig.update_yaxes(title_text="Count", row=1, col=2)
+        fig.update_layout(barmode="overlay")
+        _plotly_template_layout(fig, title="Residual diagnostics", height=470)
+        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        notes.append("residuals")
+
+    metrics_frame = _metrics_long_frame(metrics)
+    if not metrics_frame.empty:
+        fig = go.Figure()
+        for metric, sub in metrics_frame.groupby("metric", sort=False):
+            fig.add_trace(go.Bar(x=sub["split"], y=sub["value"], name=str(metric), text=[_fmt_num(v) for v in sub["value"]], textposition="auto"))
+        fig.update_xaxes(title_text="Validation split")
+        fig.update_yaxes(title_text="Metric value")
+        fig.update_layout(barmode="group")
+        _plotly_template_layout(fig, title="Model performance metrics by split", height=430)
+        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        notes.append("metrics")
+
+    ad_frame = _ad_plot_frame(ad_summary)
+    if not ad_frame.empty:
+        ratio_cols = [c for c in ["leverage_ratio", "knn_ratio", "mahalanobis_ratio"] if c in ad_frame and ad_frame[c].notna().any()]
+        if "leverage_ratio" in ratio_cols and "knn_ratio" in ratio_cols:
+            fig = go.Figure()
+            for conf, sub in ad_frame.dropna(subset=["leverage_ratio", "knn_ratio"]).groupby("confidence", sort=False):
+                fig.add_trace(go.Scatter(
+                    x=sub["leverage_ratio"], y=sub["knn_ratio"], mode="markers", name=str(conf),
+                    customdata=sub[["compound_id", "in_domain", "reason"]],
+                    hovertemplate="Compound: %{customdata[0]}<br>Leverage ratio: %{x:.3g}<br>kNN ratio: %{y:.3g}<br>AD: %{customdata[1]}<br>Reason: %{customdata[2]}<extra>%{fullData.name}</extra>",
+                ))
+            fig.add_vline(x=1.0, line_dash="dash", line_width=2)
+            fig.add_hline(y=1.0, line_dash="dash", line_width=2)
+            fig.update_xaxes(title_text="Williams leverage ratio (h / h*)")
+            fig.update_yaxes(title_text="kNN distance ratio (d / d*)")
+            _plotly_template_layout(fig, title="Applicability-domain boundary map", height=500)
+            divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+            notes.append("ad_boundary_map")
+        if ratio_cols:
+            melted = ad_frame[["compound_id", *ratio_cols]].melt(id_vars="compound_id", var_name="AD metric", value_name="ratio").dropna()
+            if not melted.empty:
+                fig = go.Figure()
+                for metric, sub in melted.groupby("AD metric", sort=False):
+                    fig.add_trace(go.Box(y=sub["ratio"], name=str(metric), boxpoints="outliers", customdata=sub[["compound_id"]], hovertemplate="Compound: %{customdata[0]}<br>Ratio: %{y:.3g}<extra>%{fullData.name}</extra>"))
+                fig.add_hline(y=1.0, line_dash="dash", line_width=2)
+                fig.update_yaxes(title_text="Boundary ratio; values > 1 are outside threshold")
+                _plotly_template_layout(fig, title="Applicability-domain ratio distributions", height=430)
+                divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+                notes.append("ad_ratio_distribution")
+        if "confidence" in ad_frame.columns:
+            counts = ad_frame["confidence"].astype(str).value_counts().reset_index()
+            counts.columns = ["confidence", "count"]
+            fig = go.Figure(go.Bar(x=counts["confidence"], y=counts["count"], text=counts["count"], textposition="auto"))
+            fig.update_xaxes(title_text="AD confidence")
+            fig.update_yaxes(title_text="Number of compounds")
+            _plotly_template_layout(fig, title="AD confidence distribution", height=360)
+            divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+            notes.append("ad_confidence")
+
+    importance_frame = _importance_plot_frame(explanation_summary)
+    if not importance_frame.empty:
+        fig = go.Figure(go.Bar(
+            x=importance_frame["importance"],
+            y=importance_frame["feature"],
+            orientation="h",
+            customdata=importance_frame[["abs_importance"]],
+            hovertemplate="Descriptor: %{y}<br>Importance: %{x:.4g}<br>|importance|: %{customdata[0]:.4g}<extra></extra>",
+        ))
+        fig.update_xaxes(title_text="Importance / coefficient / mean |SHAP|")
+        fig.update_yaxes(title_text="Descriptor")
+        _plotly_template_layout(fig, title="Top explanatory descriptors", height=max(420, 26 * len(importance_frame) + 140))
+        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        notes.append("feature_importance")
+
+    if not divs:
+        return (
+            "<section class='plotly-dashboard'><h2>Interactive QSAR visual analytics</h2>"
+            "<p><em>No suitable observed/predicted, metrics, AD-ratio or feature-importance columns were detected for graph generation.</em></p></section>",
+            ["no_graphs"],
+        )
+    return (
+        "<section class='plotly-dashboard'><h2>Interactive QSAR visual analytics</h2>"
+        "<p class='plot-note'>Interactive figures are included in the HTML report. Use hover for compound-level diagnostics and the Plotly toolbar for zoom/export.</p>"
+        + "\n".join(divs)
+        + "</section>",
+        notes,
+    )
 
 def _make_executive_bullets(dataset_profile: dict[str, Any], metrics_lookup: dict[tuple[str, str], float], pred_diag: dict[str, Any], ad_prof: dict[str, Any], expl_prof: dict[str, Any]) -> list[str]:
     test_r2 = _first_metric(metrics_lookup, ["r2", "r_2", "q2", "q_2"], ["test", "external", "validation", ""])
@@ -440,6 +792,17 @@ def _pipe_table_to_html(lines: list[str]) -> str:
     return "".join(h)
 
 
+
+def _validation_profile(validation_summary: Optional[pd.DataFrame]) -> dict[str, Any]:
+    if validation_summary is None or validation_summary.empty:
+        return {}
+    row = validation_summary.iloc[0].to_dict()
+    out: dict[str, Any] = {"rows": int(len(validation_summary))}
+    for key in ("n_rows", "n_outliers", "n_large_residuals", "n_z_outliers", "n_outside_ad", "n_low_ad_confidence", "n_warning", "n_critical", "ad_coverage", "residual_threshold", "z_threshold", "observed_column_used", "predicted_column_used") :
+        if key in row:
+            out[key] = row[key]
+    return out
+
 def generate_qsar_report(
     *,
     dataset: Optional[pd.DataFrame] = None,
@@ -459,6 +822,7 @@ def generate_qsar_report(
     pred_diag = _prediction_diagnostics(predictions)
     ds_prof = _dataset_profile(dataset)
     ad_prof = _ad_profile(ad_summary)
+    val_prof = _validation_profile(validation_summary)
     expl_prof = _explanation_profile(explanation_summary)
 
     sections: list[dict[str, Any]] = []
@@ -476,6 +840,19 @@ def generate_qsar_report(
     for bullet in _make_executive_bullets(ds_prof, metrics_lookup, pred_diag, ad_prof, expl_prof):
         md.append(f"- {bullet}")
     sections.append({"section": "Executive summary", "status": "created", "rows": 1, "notes": "Publication-style high-level summary."})
+
+    plotly_dashboard_html, plotly_graphs = _build_interactive_plotly_dashboard_html(
+        predictions=predictions,
+        metrics=metrics,
+        ad_summary=ad_summary,
+        explanation_summary=explanation_summary,
+    )
+    if plotly_graphs and plotly_graphs != ["no_graphs"]:
+        md.append("")
+        md.append("## Interactive visual analytics")
+        md.append("")
+        md.append("The HTML report contains interactive Plotly graphs for observed-vs-predicted values, residuals, model metrics, applicability-domain diagnostics and feature interpretation when the required columns are available.")
+        sections.append({"section": "Interactive visual analytics", "status": "created", "rows": len(plotly_graphs), "notes": ", ".join(plotly_graphs)})
 
     md.append("")
     md.append("## 2. Dataset and curation overview")
@@ -510,6 +887,11 @@ def generate_qsar_report(
         md.append(f"Detected performance class: **{_classify_r2(test_r2)}** based on the available R²/Q²-like metric.")
         if test_r2 is not None or rmse is not None:
             md.append(f"Key metric summary: R²/Q²-like = **{_fmt_num(test_r2)}**, RMSE = **{_fmt_num(rmse)}**.")
+        ccc = _first_metric(metrics_lookup, ["ccc", "concordance_correlation_coefficient"], ["test", "external", "validation", ""])
+        slope = _first_metric(metrics_lookup, ["slope"], ["test", "external", "validation", ""])
+        bias = _first_metric(metrics_lookup, ["bias", "mean_error"], ["test", "external", "validation", ""])
+        if ccc is not None or slope is not None or bias is not None:
+            md.append(f"Agreement diagnostics: CCC = **{_fmt_num(ccc)}**, observed-vs-predicted slope = **{_fmt_num(slope)}**, bias = **{_fmt_num(bias)}**.")
         md.append("")
         md.append(_df_preview_markdown(metrics, config.max_preview_rows))
         sections.append({"section": "Model performance and validation", "status": "created", "rows": len(metrics), "notes": "Model and validation metrics with interpretation."})
@@ -545,6 +927,12 @@ def generate_qsar_report(
             md.append(f"Estimated AD coverage: **{cov_pct:.1f}%**.")
         if ad_prof.get("out_of_domain_count") is not None:
             md.append(f"Out-of-domain compounds detected: **{ad_prof['out_of_domain_count']}**.")
+        if ad_prof.get("max_leverage_ratio") is not None or ad_prof.get("max_distance_ratio") is not None:
+            md.append(f"Boundary diagnostics: maximum leverage ratio = **{_fmt_num(ad_prof.get('max_leverage_ratio'))}**, maximum kNN-distance ratio = **{_fmt_num(ad_prof.get('max_distance_ratio'))}**.")
+        if ad_prof.get("confidence_counts"):
+            md.append(f"AD confidence distribution: **{ad_prof['confidence_counts']}**.")
+        if ad_prof.get("top_reasons"):
+            md.append(f"Most common AD/review reasons: **{ad_prof['top_reasons']}**.")
         md.append(_df_preview_markdown(ad_summary, config.max_preview_rows))
         sections.append({"section": "Applicability domain", "status": "created", "rows": len(ad_summary), "notes": "AD summary and coverage interpretation."})
 
@@ -574,6 +962,24 @@ def generate_qsar_report(
         md.append("No validation-summary table was supplied.")
         sections.append({"section": "Validation dashboard details", "status": "missing", "rows": 0, "notes": "No validation summary supplied."})
     else:
+        if val_prof:
+            md.append(
+                "Dashboard flags: "
+                f"rows = **{val_prof.get('n_rows', 'n/a')}**, "
+                f"review rows = **{val_prof.get('n_outliers', 'n/a')}**, "
+                f"large residuals = **{val_prof.get('n_large_residuals', 'n/a')}**, "
+                f"z-outliers = **{val_prof.get('n_z_outliers', 'n/a')}**, "
+                f"outside AD = **{val_prof.get('n_outside_ad', 'n/a')}**, "
+                f"warnings = **{val_prof.get('n_warning', 'n/a')}**, "
+                f"critical = **{val_prof.get('n_critical', 'n/a')}**."
+            )
+            if val_prof.get("observed_column_used") or val_prof.get("predicted_column_used"):
+                md.append(
+                    f"Dashboard column mapping: observed = **{val_prof.get('observed_column_used', 'n/a')}**, "
+                    f"predicted = **{val_prof.get('predicted_column_used', 'n/a')}**."
+                )
+            if val_prof.get("ad_coverage") is not None:
+                md.append(f"Validation dashboard AD coverage: **{float(val_prof['ad_coverage']) * 100:.1f}%**.")
         md.append(_df_preview_markdown(validation_summary, config.max_preview_rows))
         sections.append({"section": "Validation dashboard details", "status": "created", "rows": len(validation_summary), "notes": "Validation summary from QSAR Validation Dashboard."})
 
@@ -644,11 +1050,12 @@ def generate_qsar_report(
     html = f"""<!doctype html>
 <html><head><meta charset=\"utf-8\"><title>{_html.escape(config.title)}</title>
 <style>
-body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; line-height: 1.5; color: #172033; background: #ffffff; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 2rem; line-height: 1.5; color: #172033; background: #ffffff; max-width: 1180px; }}
 h1 {{ color: #0f3b5f; border-bottom: 4px solid #14b8a6; padding-bottom: .4rem; font-size: 2rem; }}
 h2 {{ color: #0f3b5f; margin-top: 1.8rem; font-size: 1.35rem; }}
 h3 {{ color: #31546c; margin-top: 1.2rem; }}
 p, li {{ font-size: .98rem; }}
+h2 + p, h2 + ul {{ background: #f8fafc; border-left: 4px solid #14b8a6; padding: .7rem .9rem; border-radius: .35rem; }}
 strong {{ color: #0f172a; }}
 code, pre {{ background: #f3f4f6; padding: .1rem .25rem; border-radius: .25rem; }}
 pre {{ padding: .75rem; overflow-x: auto; }}
@@ -657,7 +1064,10 @@ ul {{ padding-left: 1.4rem; }}
 .report-table th {{ background: #eef6f8; color: #0f3b5f; text-align: left; }}
 .report-table th, .report-table td {{ border: 1px solid #d1d5db; padding: .38rem .55rem; vertical-align: top; }}
 .report-table tr:nth-child(even) td {{ background: #f8fafc; }}
-</style></head><body>{html_body}</body></html>"""
+.plotly-dashboard {{ margin-top: 2rem; padding-top: 1rem; border-top: 3px solid #e2e8f0; }}
+.plotly-dashboard h2 {{ color: #0f3b5f; }}
+.plot-note {{ background: #ecfeff; border-left: 4px solid #06b6d4; padding: .7rem .9rem; border-radius: .35rem; }}
+</style></head><body>{html_body}{plotly_dashboard_html}</body></html>"""
 
     summary = {
         "title": config.title,
@@ -672,7 +1082,12 @@ ul {{ padding-left: 1.4rem; }}
         "detected_target_column": ds_prof.get("target_column"),
         "detected_smiles_column": ds_prof.get("smiles_column"),
         "ad_coverage": ad_prof.get("coverage"),
+        "validation_review_rows": val_prof.get("n_outliers"),
+        "validation_outside_ad": val_prof.get("n_outside_ad"),
+        "validation_warning_rows": val_prof.get("n_warning"),
+        "validation_critical_rows": val_prof.get("n_critical"),
         "r2_from_predictions": pred_diag.get("r2_from_predictions"),
+        "interactive_graphs": plotly_graphs,
     }
     return QSARReportResult(markdown=markdown, html=html, sections=pd.DataFrame(sections), summary=summary)
 

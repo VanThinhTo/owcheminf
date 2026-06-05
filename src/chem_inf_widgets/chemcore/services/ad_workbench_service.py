@@ -101,38 +101,88 @@ def _ad_cfg(cfg: ADWorkbenchConfig) -> ADConfig:
     )
 
 
+def _safe_ratio(values: np.ndarray | None, threshold: float | None) -> np.ndarray:
+    """Return value/threshold ratios while preserving unavailable methods as NaN."""
+    if values is None or threshold is None or not np.isfinite(float(threshold)) or float(threshold) <= 0:
+        n = 0 if values is None else len(values)
+        return np.full(n, np.nan, dtype=float)
+    return np.asarray(values, dtype=float) / float(threshold)
+
+
 def _score_frame(df: pd.DataFrame, prediction, cfg: ADWorkbenchConfig, label: str) -> pd.DataFrame:
+    """Append AD Workbench diagnostics to a data frame.
+
+    The QSAR widgets consume the same columns, so keep this function as the
+    single rich AD implementation: Williams/leverage, kNN distance and optional
+    Mahalanobis distance, plus normalized ratios, margin, confidence tier and
+    human-readable review reason.
+    """
     out = df.copy()
     out["AD_dataset_role"] = label
     out["AD_leverage"] = prediction.leverage
     out["AD_h_star"] = prediction.h_star
+    out["AD_leverage_ratio"] = _safe_ratio(prediction.leverage, prediction.h_star)
     out["AD_in_williams"] = prediction.in_ad_williams.astype(bool)
+
     if prediction.knn_dist is not None:
         out["AD_knn_dist"] = prediction.knn_dist
         out["AD_knn_threshold"] = prediction.knn_threshold
+        out["AD_knn_ratio"] = _safe_ratio(prediction.knn_dist, prediction.knn_threshold)
     else:
         out["AD_knn_dist"] = np.nan
         out["AD_knn_threshold"] = np.nan
+        out["AD_knn_ratio"] = np.nan
     out["AD_in_knn"] = prediction.in_ad_knn.astype(bool)
+
     if prediction.maha_d2 is not None:
         out["AD_maha_d2"] = prediction.maha_d2
         out["AD_maha_threshold"] = prediction.maha_threshold
+        out["AD_maha_ratio"] = _safe_ratio(prediction.maha_d2, prediction.maha_threshold)
     else:
         out["AD_maha_d2"] = np.nan
         out["AD_maha_threshold"] = np.nan
+        out["AD_maha_ratio"] = np.nan
     out["AD_in_mahalanobis"] = prediction.in_ad_maha.astype(bool)
     out["AD_in_domain"] = prediction.in_ad.astype(bool)
 
+    ratio_cols = ["AD_leverage_ratio"]
+    if bool(cfg.use_knn):
+        ratio_cols.append("AD_knn_ratio")
+    if bool(cfg.use_mahalanobis):
+        ratio_cols.append("AD_maha_ratio")
+    ratio_matrix = out[ratio_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    finite_ratio = np.where(np.isfinite(ratio_matrix), ratio_matrix, -np.inf)
+    out["AD_margin"] = np.max(finite_ratio, axis=1)
+    out.loc[~np.isfinite(out["AD_margin"]), "AD_margin"] = np.nan
+
+    enabled_methods = int(bool(cfg.use_williams)) + int(bool(cfg.use_knn)) + int(bool(cfg.use_mahalanobis))
+    failed_counts: list[int] = []
     reasons: list[str] = []
+    confidence: list[str] = []
     for i in range(len(out)):
         failed: list[str] = []
         if bool(cfg.use_williams) and not bool(prediction.in_ad_williams[i]):
-            failed.append("leverage")
+            failed.append("high leverage")
         if bool(cfg.use_knn) and not bool(prediction.in_ad_knn[i]):
-            failed.append("knn")
+            failed.append("far from reference neighbours")
         if bool(cfg.use_mahalanobis) and not bool(prediction.in_ad_maha[i]):
-            failed.append("mahalanobis")
-        reasons.append(";".join(failed) if failed else "in_domain")
+            failed.append("high Mahalanobis distance")
+        failed_counts.append(len(failed))
+
+        margin = out["AD_margin"].iloc[i]
+        if failed:
+            confidence.append("low")
+            reasons.append("; ".join(failed))
+        elif np.isfinite(margin) and float(margin) >= 0.85:
+            confidence.append("medium")
+            reasons.append("inside AD but close to boundary")
+        else:
+            confidence.append("high")
+            reasons.append("inside AD")
+
+    out["AD_enabled_methods"] = enabled_methods
+    out["AD_failed_methods"] = failed_counts
+    out["AD_confidence"] = confidence
     out["AD_reason"] = reasons
     return out
 

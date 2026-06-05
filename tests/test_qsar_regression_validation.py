@@ -67,3 +67,47 @@ def test_build_applicability_domain_table_returns_train_and_test_rows():
     assert len(table) == 6
     dataset_names = {str(row[table.domain["dataset"]]) for row in table}
     assert dataset_names == {"train", "test"}
+
+
+def test_build_applicability_domain_table_uses_workbench_columns():
+    X_train = np.array(
+        [
+            [0.1, 1.0],
+            [0.2, 0.9],
+            [0.3, 0.8],
+            [0.4, 0.7],
+            [0.5, 0.6],
+            [0.6, 0.5],
+        ],
+        dtype=float,
+    )
+    y_train = np.array([1.0, 1.2, 1.4, 1.6, 1.8, 2.0], dtype=float)
+    X_test = np.array([[0.15, 0.95], [4.0, 4.0]], dtype=float)
+    y_test = np.array([1.1, 3.0], dtype=float)
+    X_ext = np.array([[0.25, 0.85]], dtype=float)
+    y_ext = np.array([1.3], dtype=float)
+    pipeline = Pipeline([("regressor", LinearRegression())]).fit(X_train, y_train)
+
+    table = build_applicability_domain_table(
+        {
+            "pipeline": pipeline,
+            "is_classification": False,
+            "X_train": X_train,
+            "y_train": y_train,
+            "X_test": X_test,
+            "y_test": y_test,
+            "X_ext": X_ext,
+            "y_ext": y_ext,
+        }
+    )
+
+    assert isinstance(table, Table)
+    assert len(table) == 9
+    names = {var.name for var in table.domain.variables + table.domain.metas}
+    assert "AD_in_domain" in names
+    assert "AD_leverage_ratio" in names
+    assert "AD_knn_ratio" in names
+    assert "AD_confidence" in names
+    assert "ad_in_domain" in names
+    dataset_names = {str(row[table.domain["dataset"]]) for row in table}
+    assert dataset_names == {"train", "test", "external"}

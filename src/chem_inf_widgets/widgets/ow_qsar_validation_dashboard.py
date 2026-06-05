@@ -225,6 +225,13 @@ def _render_validation_summary_html(
     split_groups = 0
     if split_column in diagnostics.columns:
         split_groups = int(diagnostics[split_column].dropna().astype(str).nunique())
+    top_reasons = {}
+    if "review_reason" in outliers.columns:
+        top_reasons = outliers["review_reason"].astype(str).value_counts().head(3).to_dict()
+    used_observed = str(summary.get("observed_column_used") or observed_column or "n/a")
+    used_predicted = str(summary.get("predicted_column_used") or predicted_column or "n/a")
+    used_split = summary.get("split_column_used")
+    used_id = summary.get("id_column_used")
 
     cards = "".join(
         [
@@ -233,21 +240,40 @@ def _render_validation_summary_html(
             _count_card("R²", f"{float(overall.get('r2', float('nan'))):.3f}" if pd.notna(overall.get("r2")) else "n/a", "overall fit"),
             _count_card("RMSE", f"{float(overall.get('rmse', float('nan'))):.3f}" if pd.notna(overall.get("rmse")) else "n/a", "overall prediction error"),
             _count_card("MAE", f"{float(overall.get('mae', float('nan'))):.3f}" if pd.notna(overall.get("mae")) else "n/a", "overall absolute error"),
+            _count_card("CCC", f"{float(overall.get('ccc', float('nan'))):.3f}" if pd.notna(overall.get("ccc")) else "n/a", "observed/predicted agreement"),
+            _count_card("AD Coverage", f"{100.0 * float(summary.get('ad_coverage')):.1f}%" if pd.notna(summary.get("ad_coverage")) else "n/a", "inside applicability domain"),
         ]
     )
 
     notes = [
-        f"Observed column: {observed_column or 'n/a'}",
-        f"Predicted column: {predicted_column or 'n/a'}",
-        f"Split column: {split_column if split_column in diagnostics.columns else 'not used'}",
-        f"ID column: {id_column if id_column in diagnostics.columns else 'not found'}",
+        f"Observed column: {used_observed}",
+        f"Predicted column: {used_predicted}",
+        f"Split column: {used_split if used_split is not None else 'not used'}",
+        f"ID column: {used_id if used_id is not None else 'not found'}",
         f"Residual threshold: {float(summary.get('residual_threshold', float('nan'))):.3f}" if pd.notna(summary.get("residual_threshold")) else "Residual threshold: n/a",
         f"Z threshold: {float(summary.get('z_threshold', float('nan'))):.2f}" if pd.notna(summary.get("z_threshold")) else "Z threshold: n/a",
         f"Split groups: {split_groups}",
         f"Metrics rows: {len(metrics)}",
         f"Outlier rows: {len(outliers)}",
+        f"Large residuals: {int(summary.get('n_large_residuals', 0))}",
+        f"Residual z-outliers: {int(summary.get('n_z_outliers', 0))}",
+        f"Outside AD: {int(summary.get('n_outside_ad', 0))}",
+        f"Low AD confidence: {int(summary.get('n_low_ad_confidence', 0))}",
+        f"Critical reviews: {int(summary.get('n_critical', 0))}",
+        f"Warnings: {int(summary.get('n_warning', 0))}",
     ]
     notes_html = "".join(f"<li>{html.escape(line)}</li>" for line in notes)
+    reasons_html = ""
+    if top_reasons:
+        reasons_list = "".join(
+            f"<li>{html.escape(reason)}: {count}</li>" for reason, count in top_reasons.items()
+        )
+        reasons_html = (
+            "<div style='margin-top: 14px; padding: 12px 14px; border:1px solid #d7dee8; border-radius:8px; background:#ffffff;'>"
+            "<div style='font-size:13px; font-weight:600; margin-bottom:8px;'>Top review reasons</div>"
+            f"<ul style='margin:0; padding-left:18px; color:#334155;'>{reasons_list}</ul>"
+            "</div>"
+        )
 
     return (
         "<html><body style='font-family: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; "
@@ -258,6 +284,7 @@ def _render_validation_summary_html(
         "<div style='font-size:13px; font-weight:600; margin-bottom:8px;'>Configuration and coverage</div>"
         f"<ul style='margin:0; padding-left:18px; color:#334155;'>{notes_html}</ul>"
         "</div>"
+        f"{reasons_html}"
         "<p style='margin-top:14px; color:#475569;'>"
         "Use the Diagnostics tab for visual selection and the Outliers tab for row-wise review of flagged compounds."
         "</p>"
@@ -614,9 +641,9 @@ class OWQSARValidationDashboard(OWWidget):
         t4_layout = QVBoxLayout()
         self._tab_outliers.setLayout(t4_layout)
         self._outliers_table = QTableWidget()
-        self._outliers_table.setColumnCount(6)
+        self._outliers_table.setColumnCount(8)
         self._outliers_table.setHorizontalHeaderLabels(
-            ["ID", "Observed", "Predicted", "Residual", "Z-score", "Flag"]
+            ["ID", "Observed", "Predicted", "Residual", "Z-score", "AD", "Flag", "Reason"]
         )
         self._outliers_table.setAlternatingRowColors(True)
         self._outliers_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -805,22 +832,23 @@ class OWQSARValidationDashboard(OWWidget):
         ax_left = fig.add_subplot(121)
         ax_right = fig.add_subplot(122)
 
-        palette = {
-            "train": ("#2563EB", "Train"),
-            "test": ("#EA580C", "Test"),
+        _named_colors = {
+            "train": "#2563EB",
+            "test": "#EA580C",
         }
+        _fallback_colors = ["#2563EB", "#EA580C", "#16A34A", "#9333EA", "#D97706", "#0891B2"]
+
+        if split_col in df.columns:
+            split_groups = [(str(v), df[df[split_col].astype(str) == str(v)]) for v in df[split_col].dropna().unique()]
+        else:
+            split_groups = [("All", df)]
 
         plotted_any = False
-        for split, (color, label) in palette.items():
-            if split_col in df.columns:
-                sub = df[df[split_col].astype(str).str.lower() == split]
-            else:
-                sub = df
-                label = "All"
-                color = "#2563EB"
+        for i, (label, sub) in enumerate(split_groups):
             if sub.empty:
                 continue
             plotted_any = True
+            color = _named_colors.get(label.lower(), _fallback_colors[i % len(_fallback_colors)])
             ax_left.scatter(
                 pd.to_numeric(sub[pred_col], errors="coerce"),
                 pd.to_numeric(sub[obs_col], errors="coerce"),
@@ -841,8 +869,6 @@ class OWQSARValidationDashboard(OWWidget):
                 linewidths=0.35,
                 label=label,
             )
-            if split_col not in df.columns:
-                break
 
         if not plotted_any:
             self._reset_diagnostics_view("No diagnostics available.")
@@ -1185,11 +1211,13 @@ class OWQSARValidationDashboard(OWWidget):
 
         col_map = {
             0: self.id_column.strip() or "compound_id",
-            1: self.observed_column.strip() or "observed",
-            2: self.predicted_column.strip() or "predicted",
+            1: "observed",
+            2: "predicted",
             3: "residual",
             4: "residual_z",
-            5: "validation_flag",
+            5: "ad_flag",
+            6: "validation_flag",
+            7: "review_reason",
         }
 
         work_df = outliers_df.copy()

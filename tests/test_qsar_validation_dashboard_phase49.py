@@ -126,10 +126,14 @@ def test_qsar_validation_outlier_table_uses_service_column_names():
 
         assert widget._outliers_table.rowCount() >= 1
         z_text = widget._outliers_table.item(0, 4).text()
-        flag_text = widget._outliers_table.item(0, 5).text()
+        ad_text = widget._outliers_table.item(0, 5).text()
+        flag_text = widget._outliers_table.item(0, 6).text()
+        reason_text = widget._outliers_table.item(0, 7).text()
 
         assert z_text != ""
+        assert ad_text == "not provided"
         assert flag_text == "review"
+        assert reason_text != ""
     finally:
         widget.onDeleteWidget()
         widget.close()
@@ -151,6 +155,29 @@ def test_qsar_validation_outlier_selection_publishes_selected_rows():
 
         assert widget._selected_table.rowCount() == 1
         assert "Selected 1 compounds" in widget._diagnostics_hint.text()
+    finally:
+        widget.onDeleteWidget()
+        widget.close()
+
+
+def test_qsar_validation_diagnostics_plot_renders_with_custom_split_names():
+    widget = OWQSARValidationDashboard()
+    try:
+        df = pd.DataFrame(
+            {
+                "compound_id": [f"C{i}" for i in range(6)],
+                "fold": ["train_fold1", "train_fold1", "train_fold2", "external", "external", "holdout"],
+                "observed": [5.0, 5.5, 6.0, 6.5, 7.0, 7.5],
+                "predicted": [5.1, 5.4, 6.1, 6.4, 7.1, 7.3],
+                "residual": [-0.1, 0.1, -0.1, 0.1, -0.1, 0.2],
+                "split": ["train", "train", "train", "external", "external", "holdout"],
+            }
+        )
+        widget._diagnostics_table = _dataframe_to_orange(df)
+        widget._le_split.setText("split")
+        widget._update_diagnostics(df)
+
+        assert widget._diagnostic_canvas is not None, "canvas should be built even with non-standard split names"
     finally:
         widget.onDeleteWidget()
         widget.close()

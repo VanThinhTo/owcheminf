@@ -355,14 +355,15 @@ def run_qsar_regression(
         "model_ranking_table": model_ranking_table,
         **ad_info,
     }
+    if external_data is not None:
+        result["X_ext"] = X_ext
+        result["y_ext"] = y_ext
+
     if bool(getattr(config, "enable_applicability_domain", True)):
         result["applicability_domain_table"] = build_applicability_domain_table(result)
     else:
         result["applicability_domain_table"] = None
     result["modeling_summary_table"] = build_qsar_modeling_summary_table(result)
-    if external_data is not None:
-        result["X_ext"] = X_ext
-        result["y_ext"] = y_ext
 
     return result
 
