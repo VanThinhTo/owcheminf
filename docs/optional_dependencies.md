@@ -62,6 +62,7 @@ Core widgets should still import without these extras. Missing extras may disabl
 | Extra / package | Main widgets affected | Behavior when missing |
 | --- | --- | --- |
 | `optuna` / `.[hpo]` | `QSAR/QSPR Model Hub` | Widget still imports; HPO and `auto` model are disabled. |
+| `plotly` / `.[reporting]` | `QSAR Report Generator` | Static markdown/HTML still work, but interactive QSAR visual analytics are unavailable. |
 | `mordred` / `.[descriptors]` | `Mol Descriptor` | Widget remains available but descriptor computation is disabled with a clear message. |
 | `padelpy` and Java | `PaDEL Descriptors` | PaDEL-specific computation fails until Java and `padelpy` are available. |
 | `py3Dmol` / `.[viewer3d]` | `3D Molecular Viewer` | 3D rendering features are unavailable. |

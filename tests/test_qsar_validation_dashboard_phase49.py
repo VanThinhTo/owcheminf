@@ -139,6 +139,28 @@ def test_qsar_validation_outlier_table_uses_service_column_names():
         widget.close()
 
 
+def test_qsar_validation_metrics_table_surfaces_extended_metrics():
+    widget = OWQSARValidationDashboard()
+    try:
+        result = validate_qsar_predictions(
+            _outlier_df(),
+            QSARValidationConfig(residual_threshold=1.0, z_threshold=0.5),
+        )
+        widget._update_metrics(result.metrics)
+
+        headers = [
+            widget._metrics_table.horizontalHeaderItem(i).text()
+            for i in range(widget._metrics_table.columnCount())
+        ]
+        assert "CCC" in headers
+        assert "Bias" in headers
+        assert "Median AE" in headers
+        assert widget._metrics_table.rowCount() >= 1
+    finally:
+        widget.onDeleteWidget()
+        widget.close()
+
+
 def test_qsar_validation_outlier_selection_publishes_selected_rows():
     widget = OWQSARValidationDashboard()
     try:
@@ -155,6 +177,29 @@ def test_qsar_validation_outlier_selection_publishes_selected_rows():
 
         assert widget._selected_table.rowCount() == 1
         assert "Selected 1 compounds" in widget._diagnostics_hint.text()
+    finally:
+        widget.onDeleteWidget()
+        widget.close()
+
+
+def test_qsar_validation_outlier_table_prefers_resolved_id_column():
+    widget = OWQSARValidationDashboard()
+    try:
+        widget.id_column = "molecule id"
+        result = validate_qsar_predictions(
+            pd.DataFrame(
+                {
+                    "molecule_id": ["C001", "C002", "C003"],
+                    "actual_value": [5.0, 6.0, 7.0],
+                    "predicted_pActivity": [5.0, 7.5, 6.5],
+                }
+            ),
+            QSARValidationConfig(residual_threshold=0.4, z_threshold=0.1),
+        )
+        widget._summary_result = result
+        widget._update_outliers(result.outliers)
+
+        assert widget._outliers_table.item(0, 0).text() == "C002"
     finally:
         widget.onDeleteWidget()
         widget.close()

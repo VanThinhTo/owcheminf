@@ -142,7 +142,11 @@ def _metrics_for_group(group_name: str, y_true: np.ndarray, y_pred: np.ndarray) 
     }
 
 
-def validate_qsar_predictions(df: pd.DataFrame, config: QSARValidationConfig = QSARValidationConfig()) -> QSARValidationResult:
+def validate_qsar_predictions(
+    df: pd.DataFrame,
+    config: QSARValidationConfig | None = None,
+) -> QSARValidationResult:
+    config = config or QSARValidationConfig()
     data = df.copy()
     observed_col = _resolve_column(
         data,

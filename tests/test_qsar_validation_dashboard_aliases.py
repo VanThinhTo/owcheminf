@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import pandas as pd
 
-from chem_inf_widgets.chemcore.services.qsar_validation_dashboard_service import validate_qsar_predictions
+from chem_inf_widgets.chemcore.services.qsar_validation_dashboard_service import (
+    validate_qsar_predictions,
+)
 
 
 def test_validation_dashboard_resolves_common_qsar_column_aliases_and_ad_confidence():

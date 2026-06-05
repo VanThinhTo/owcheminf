@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,7 +14,6 @@ from chem_inf_widgets.chemcore.services.applicability_domain_service import (
     fit_applicability_domain,
     score_applicability_domain,
 )
-
 
 DEFAULT_EXCLUDED_COLUMNS = {
     "compound_id", "molecule_id", "id", "name", "smiles", "canonical_smiles",
@@ -190,8 +190,9 @@ def _score_frame(df: pd.DataFrame, prediction, cfg: ADWorkbenchConfig, label: st
 def evaluate_applicability_domain_workbench(
     reference_df: pd.DataFrame,
     query_df: pd.DataFrame | None = None,
-    config: ADWorkbenchConfig = ADWorkbenchConfig(),
+    config: ADWorkbenchConfig | None = None,
 ) -> ADWorkbenchResult:
+    config = config or ADWorkbenchConfig()
     ref_df = reference_df.copy()
     q_df = ref_df.copy() if query_df is None else query_df.copy()
     feature_names = _common_features(ref_df, q_df, config)

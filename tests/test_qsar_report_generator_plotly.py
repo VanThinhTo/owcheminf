@@ -1,6 +1,9 @@
 import pandas as pd
+import pytest
 
 from chem_inf_widgets.chemcore.services.qsar_report_generator_service import generate_qsar_report
+
+pytest.importorskip("plotly")
 
 
 def test_qsar_report_contains_interactive_plotly_graphs():

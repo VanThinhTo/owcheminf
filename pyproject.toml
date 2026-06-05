@@ -58,6 +58,9 @@ descriptors = [
 viewer3d = [
     "py3Dmol"
 ]
+reporting = [
+    "plotly"
+]
 hpo = [
     "optuna"
 ]
@@ -77,6 +80,7 @@ all = [
     "mordred",
     "padelpy",
     "py3Dmol",
+    "plotly",
     "torch",
     "optuna"
 ]

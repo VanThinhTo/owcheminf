@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -38,13 +38,13 @@ class QSARReportResult:
     summary: dict[str, Any]
 
 
-def _safe_shape(df: Optional[pd.DataFrame]) -> tuple[int, int]:
+def _safe_shape(df: pd.DataFrame | None) -> tuple[int, int]:
     if df is None:
         return (0, 0)
     return (int(len(df)), int(len(df.columns)))
 
 
-def _df_preview_markdown(df: Optional[pd.DataFrame], max_rows: int) -> str:
+def _df_preview_markdown(df: pd.DataFrame | None, max_rows: int) -> str:
     if df is None or df.empty:
         return "_No table was provided._"
     preview = df.head(max_rows).copy()
@@ -54,7 +54,7 @@ def _df_preview_markdown(df: Optional[pd.DataFrame], max_rows: int) -> str:
         return "```\n" + preview.to_csv(index=False) + "```"
 
 
-def _summarize_numeric(df: Optional[pd.DataFrame]) -> pd.DataFrame:
+def _summarize_numeric(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
     numeric = df.select_dtypes(include="number")
@@ -65,7 +65,7 @@ def _summarize_numeric(df: Optional[pd.DataFrame]) -> pd.DataFrame:
     return desc[keep]
 
 
-def _table_to_html(df: Optional[pd.DataFrame], max_rows: int = 20) -> str:
+def _table_to_html(df: pd.DataFrame | None, max_rows: int = 20) -> str:
     if df is None or df.empty:
         return "<p><em>No table was provided.</em></p>"
     return df.head(max_rows).to_html(index=False, escape=True, border=0, classes="report-table")
@@ -75,7 +75,7 @@ def _norm_key(value: Any) -> str:
     return str(value).strip().lower().replace(" ", "_").replace("-", "_")
 
 
-def _metric_lookup(metrics: Optional[pd.DataFrame]) -> dict[tuple[str, str], float]:
+def _metric_lookup(metrics: pd.DataFrame | None) -> dict[tuple[str, str], float]:
     """Return {(split, metric): value}; split may be '' when not supplied."""
     out: dict[tuple[str, str], float] = {}
     if metrics is None or metrics.empty:
@@ -154,7 +154,7 @@ def _classify_r2(r2: float | None) -> str:
     return "weak"
 
 
-def _detect_column(df: Optional[pd.DataFrame], candidates: list[str]) -> str | None:
+def _detect_column(df: pd.DataFrame | None, candidates: list[str]) -> str | None:
     if df is None or df.empty:
         return None
     low = {_norm_key(c): c for c in df.columns}
@@ -164,7 +164,7 @@ def _detect_column(df: Optional[pd.DataFrame], candidates: list[str]) -> str | N
     return None
 
 
-def _prediction_diagnostics(predictions: Optional[pd.DataFrame]) -> dict[str, Any]:
+def _prediction_diagnostics(predictions: pd.DataFrame | None) -> dict[str, Any]:
     if predictions is None or predictions.empty:
         return {}
     obs = _detect_column(predictions, ["observed", "y_true", "actual", "actual_value", "experimental", "measured", "pActivity", "activity"])
@@ -192,7 +192,7 @@ def _prediction_diagnostics(predictions: Optional[pd.DataFrame]) -> dict[str, An
     return out
 
 
-def _dataset_profile(dataset: Optional[pd.DataFrame]) -> dict[str, Any]:
+def _dataset_profile(dataset: pd.DataFrame | None) -> dict[str, Any]:
     if dataset is None or dataset.empty:
         return {}
     numeric = dataset.select_dtypes(include="number")
@@ -217,7 +217,7 @@ def _dataset_profile(dataset: Optional[pd.DataFrame]) -> dict[str, Any]:
     }
 
 
-def _ad_profile(ad_summary: Optional[pd.DataFrame]) -> dict[str, Any]:
+def _ad_profile(ad_summary: pd.DataFrame | None) -> dict[str, Any]:
     if ad_summary is None or ad_summary.empty:
         return {}
     out: dict[str, Any] = {"rows": int(len(ad_summary))}
@@ -287,7 +287,7 @@ def _ad_profile(ad_summary: Optional[pd.DataFrame]) -> dict[str, Any]:
     return out
 
 
-def _explanation_profile(explanation_summary: Optional[pd.DataFrame]) -> dict[str, Any]:
+def _explanation_profile(explanation_summary: pd.DataFrame | None) -> dict[str, Any]:
     if explanation_summary is None or explanation_summary.empty:
         return {}
     feature_col = _detect_column(explanation_summary, ["feature", "descriptor", "name"])
@@ -304,7 +304,7 @@ def _explanation_profile(explanation_summary: Optional[pd.DataFrame]) -> dict[st
 
 
 
-def _to_numeric_series(df: Optional[pd.DataFrame], column: str | None) -> pd.Series:
+def _to_numeric_series(df: pd.DataFrame | None, column: str | None) -> pd.Series:
     if df is None or df.empty or column is None or column not in df.columns:
         return pd.Series(dtype=float)
     return pd.to_numeric(df[column], errors="coerce")
@@ -350,7 +350,7 @@ def _split_name(value: Any) -> str:
     return str(value)
 
 
-def _prediction_plot_frame(predictions: Optional[pd.DataFrame]) -> tuple[pd.DataFrame, dict[str, str | None]]:
+def _prediction_plot_frame(predictions: pd.DataFrame | None) -> tuple[pd.DataFrame, dict[str, str | None]]:
     if predictions is None or predictions.empty:
         return pd.DataFrame(), {}
     obs = _detect_column(predictions, ["observed", "y_true", "actual", "actual_value", "experimental", "measured", "reference", "pActivity", "activity"])
@@ -380,7 +380,7 @@ def _prediction_plot_frame(predictions: Optional[pd.DataFrame]) -> tuple[pd.Data
     return frame, {"observed": obs, "predicted": pred, "split": split, "residual": residual, "compound_id": compound}
 
 
-def _metrics_long_frame(metrics: Optional[pd.DataFrame]) -> pd.DataFrame:
+def _metrics_long_frame(metrics: pd.DataFrame | None) -> pd.DataFrame:
     lookup = _metric_lookup(metrics)
     rows: list[dict[str, Any]] = []
     aliases = {
@@ -398,7 +398,7 @@ def _metrics_long_frame(metrics: Optional[pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(rows).drop_duplicates() if rows else pd.DataFrame(columns=["split", "metric", "value"])
 
 
-def _ad_plot_frame(ad_summary: Optional[pd.DataFrame]) -> pd.DataFrame:
+def _ad_plot_frame(ad_summary: pd.DataFrame | None) -> pd.DataFrame:
     if ad_summary is None or ad_summary.empty:
         return pd.DataFrame()
     leverage_ratio_col = _detect_column(ad_summary, ["AD_leverage_ratio", "ad_leverage_ratio", "leverage_ratio"])
@@ -435,7 +435,11 @@ def _ad_plot_frame(ad_summary: Optional[pd.DataFrame]) -> pd.DataFrame:
     return frame.replace([float("inf"), -float("inf")], pd.NA)
 
 
-def _importance_plot_frame(explanation_summary: Optional[pd.DataFrame], *, max_features: int = 25) -> pd.DataFrame:
+def _importance_plot_frame(
+    explanation_summary: pd.DataFrame | None,
+    *,
+    max_features: int = 25,
+) -> pd.DataFrame:
     if explanation_summary is None or explanation_summary.empty:
         return pd.DataFrame(columns=["feature", "importance"])
     feature_col = _detect_column(explanation_summary, ["feature", "feature_name", "descriptor", "name"])
@@ -454,10 +458,10 @@ def _importance_plot_frame(explanation_summary: Optional[pd.DataFrame], *, max_f
 
 def _build_interactive_plotly_dashboard_html(
     *,
-    predictions: Optional[pd.DataFrame],
-    metrics: Optional[pd.DataFrame],
-    ad_summary: Optional[pd.DataFrame],
-    explanation_summary: Optional[pd.DataFrame],
+    predictions: pd.DataFrame | None,
+    metrics: pd.DataFrame | None,
+    ad_summary: pd.DataFrame | None,
+    explanation_summary: pd.DataFrame | None,
 ) -> tuple[str, list[str]]:
     try:
         import plotly.graph_objects as go
@@ -501,7 +505,8 @@ def _build_interactive_plotly_dashboard_html(
         fig.update_xaxes(title_text=f"Observed ({pred_cols.get('observed') or 'detected'})")
         fig.update_yaxes(title_text=f"Predicted ({pred_cols.get('predicted') or 'detected'})", scaleanchor="x", scaleratio=1)
         _plotly_template_layout(fig, title="Observed vs predicted values", height=520)
-        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        divs.append(_plotly_div(fig, include_js=include_js))
+        include_js = False
         notes.append("observed_predicted")
 
         fig = make_subplots(rows=1, cols=2, subplot_titles=("Residuals vs predicted", "Residual distribution"), column_widths=[0.66, 0.34])
@@ -523,7 +528,8 @@ def _build_interactive_plotly_dashboard_html(
         fig.update_yaxes(title_text="Count", row=1, col=2)
         fig.update_layout(barmode="overlay")
         _plotly_template_layout(fig, title="Residual diagnostics", height=470)
-        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        divs.append(_plotly_div(fig, include_js=include_js))
+        include_js = False
         notes.append("residuals")
 
     metrics_frame = _metrics_long_frame(metrics)
@@ -535,7 +541,8 @@ def _build_interactive_plotly_dashboard_html(
         fig.update_yaxes(title_text="Metric value")
         fig.update_layout(barmode="group")
         _plotly_template_layout(fig, title="Model performance metrics by split", height=430)
-        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        divs.append(_plotly_div(fig, include_js=include_js))
+        include_js = False
         notes.append("metrics")
 
     ad_frame = _ad_plot_frame(ad_summary)
@@ -554,7 +561,8 @@ def _build_interactive_plotly_dashboard_html(
             fig.update_xaxes(title_text="Williams leverage ratio (h / h*)")
             fig.update_yaxes(title_text="kNN distance ratio (d / d*)")
             _plotly_template_layout(fig, title="Applicability-domain boundary map", height=500)
-            divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+            divs.append(_plotly_div(fig, include_js=include_js))
+            include_js = False
             notes.append("ad_boundary_map")
         if ratio_cols:
             melted = ad_frame[["compound_id", *ratio_cols]].melt(id_vars="compound_id", var_name="AD metric", value_name="ratio").dropna()
@@ -565,7 +573,8 @@ def _build_interactive_plotly_dashboard_html(
                 fig.add_hline(y=1.0, line_dash="dash", line_width=2)
                 fig.update_yaxes(title_text="Boundary ratio; values > 1 are outside threshold")
                 _plotly_template_layout(fig, title="Applicability-domain ratio distributions", height=430)
-                divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+                divs.append(_plotly_div(fig, include_js=include_js))
+                include_js = False
                 notes.append("ad_ratio_distribution")
         if "confidence" in ad_frame.columns:
             counts = ad_frame["confidence"].astype(str).value_counts().reset_index()
@@ -574,7 +583,8 @@ def _build_interactive_plotly_dashboard_html(
             fig.update_xaxes(title_text="AD confidence")
             fig.update_yaxes(title_text="Number of compounds")
             _plotly_template_layout(fig, title="AD confidence distribution", height=360)
-            divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+            divs.append(_plotly_div(fig, include_js=include_js))
+            include_js = False
             notes.append("ad_confidence")
 
     importance_frame = _importance_plot_frame(explanation_summary)
@@ -589,7 +599,8 @@ def _build_interactive_plotly_dashboard_html(
         fig.update_xaxes(title_text="Importance / coefficient / mean |SHAP|")
         fig.update_yaxes(title_text="Descriptor")
         _plotly_template_layout(fig, title="Top explanatory descriptors", height=max(420, 26 * len(importance_frame) + 140))
-        divs.append(_plotly_div(fig, include_js=include_js)); include_js = False
+        divs.append(_plotly_div(fig, include_js=include_js))
+        include_js = False
         notes.append("feature_importance")
 
     if not divs:
@@ -793,7 +804,7 @@ def _pipe_table_to_html(lines: list[str]) -> str:
 
 
 
-def _validation_profile(validation_summary: Optional[pd.DataFrame]) -> dict[str, Any]:
+def _validation_profile(validation_summary: pd.DataFrame | None) -> dict[str, Any]:
     if validation_summary is None or validation_summary.empty:
         return {}
     row = validation_summary.iloc[0].to_dict()
@@ -805,12 +816,12 @@ def _validation_profile(validation_summary: Optional[pd.DataFrame]) -> dict[str,
 
 def generate_qsar_report(
     *,
-    dataset: Optional[pd.DataFrame] = None,
-    metrics: Optional[pd.DataFrame] = None,
-    predictions: Optional[pd.DataFrame] = None,
-    validation_summary: Optional[pd.DataFrame] = None,
-    ad_summary: Optional[pd.DataFrame] = None,
-    explanation_summary: Optional[pd.DataFrame] = None,
+    dataset: pd.DataFrame | None = None,
+    metrics: pd.DataFrame | None = None,
+    predictions: pd.DataFrame | None = None,
+    validation_summary: pd.DataFrame | None = None,
+    ad_summary: pd.DataFrame | None = None,
+    explanation_summary: pd.DataFrame | None = None,
     config: QSARReportConfig | None = None,
 ) -> QSARReportResult:
     config = config or QSARReportConfig()

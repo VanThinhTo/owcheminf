@@ -5,6 +5,10 @@ import pandas as pd
 from Orange.data import Table
 
 from chem_inf_widgets.chemcore.qsar.diagnostics import _transform_features
+from chem_inf_widgets.chemcore.services.ad_workbench_service import (
+    ADWorkbenchConfig,
+    evaluate_applicability_domain_workbench,
+)
 from chem_inf_widgets.chemcore.services.orange_table_utils import records_to_orange_table
 
 
@@ -47,8 +51,6 @@ def _append_dataset_rows(
 
 
 def _workbench_config(feature_names: list[str], n_rows: int):
-    from chem_inf_widgets.chemcore.services.ad_workbench_service import ADWorkbenchConfig
-
     # Mahalanobis is valuable but can become unstable in very high-dimensional
     # transformed feature spaces. Enable it when the feature space is compact
     # enough for a useful covariance estimate; Williams + kNN remain active.
@@ -130,7 +132,6 @@ def build_applicability_domain_table(result: dict) -> Table | None:
 
         reference_df = _model_feature_frame(X_train_t, feature_names)
         query_df = pd.concat(query_frames, ignore_index=True)
-        from chem_inf_widgets.chemcore.services.ad_workbench_service import evaluate_applicability_domain_workbench
 
         wb_result = evaluate_applicability_domain_workbench(
             reference_df,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import warnings
-from typing import Callable, Optional, Sequence
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from Orange.data import ContinuousVariable, DiscreteVariable, Domain, Table
@@ -16,7 +16,12 @@ from sklearn.metrics import (
     median_absolute_error,
     r2_score,
 )
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, cross_val_score, train_test_split
+from sklearn.model_selection import (
+    GridSearchCV,
+    RandomizedSearchCV,
+    cross_val_score,
+    train_test_split,
+)
 
 from chem_inf_widgets.chemcore.qsar.algorithms import (
     QSARRunConfig,
@@ -29,7 +34,11 @@ from chem_inf_widgets.chemcore.qsar.dataset import (
     clean_qsar_descriptor_matrix,
     prepare_qsar_model_matrix,
 )
-from chem_inf_widgets.chemcore.qsar.diagnostics import _transform_features, compute_coef_stats, compute_vif
+from chem_inf_widgets.chemcore.qsar.diagnostics import (
+    _transform_features,
+    compute_coef_stats,
+    compute_vif,
+)
 from chem_inf_widgets.chemcore.qsar.validation import build_qsar_modeling_summary_table
 from chem_inf_widgets.chemcore.services.orange_table_utils import safe_table_from_numpy
 
@@ -43,10 +52,10 @@ def _result_domain(source_data: Table, feature_names: Sequence[str], target_var,
 
 def run_qsar_regression(
     data: Table,
-    external_data: Optional[Table],
+    external_data: Table | None,
     config: QSARRunConfig,
     *,
-    interruption_requested: Optional[Callable[[], bool]] = None,
+    interruption_requested: Callable[[], bool] | None = None,
 ):
     def cancelled() -> bool:
         return bool(interruption_requested and interruption_requested())

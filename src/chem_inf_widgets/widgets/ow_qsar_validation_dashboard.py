@@ -16,6 +16,7 @@ from AnyQt.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -92,6 +93,30 @@ _ID_CANDIDATES = (
     "mol_id",
     "id",
     "name",
+)
+
+_METRIC_PLOT_SPECS = (
+    ("r2", "R\u00b2"),
+    ("rmse", "RMSE"),
+    ("mae", "MAE"),
+    ("ccc", "CCC"),
+)
+
+_METRIC_TABLE_COLUMNS = (
+    ("group", "Split"),
+    ("n", "N"),
+    ("r2", "R\u00b2"),
+    ("rmse", "RMSE"),
+    ("mae", "MAE"),
+    ("ccc", "CCC"),
+    ("pearson_r", "Pearson r"),
+    ("bias", "Bias"),
+    ("residual_sd", "Residual SD"),
+    ("median_abs_error", "Median AE"),
+    ("p95_abs_residual", "P95 |Residual|"),
+    ("max_abs_residual", "Max |Residual|"),
+    ("slope", "Slope"),
+    ("intercept", "Intercept"),
 )
 
 
@@ -622,18 +647,31 @@ class OWQSARValidationDashboard(OWWidget):
         self._tab_metrics = QWidget()
         t3_layout = QVBoxLayout()
         self._tab_metrics.setLayout(t3_layout)
-        self._pw_r2 = pg.PlotWidget()
-        self._pw_rmse = pg.PlotWidget()
-        self._pw_mae = pg.PlotWidget()
-        for pw, lbl in (
-            (self._pw_r2, "R\u00b2"),
-            (self._pw_rmse, "RMSE"),
-            (self._pw_mae, "MAE"),
-        ):
+        metrics_grid = QGridLayout()
+        metrics_grid.setContentsMargins(0, 0, 0, 0)
+        metrics_grid.setHorizontalSpacing(8)
+        metrics_grid.setVerticalSpacing(8)
+        self._metric_plot_widgets = {}
+        for index, (metric_col, metric_label) in enumerate(_METRIC_PLOT_SPECS):
+            pw = pg.PlotWidget()
             _style_plot(pw)
-            pw.setLabel("left", lbl)
+            pw.setLabel("left", metric_label)
             pw.setMaximumHeight(180)
-            t3_layout.addWidget(pw)
+            pw.getPlotItem().setTitle(metric_label)
+            self._metric_plot_widgets[metric_col] = pw
+            metrics_grid.addWidget(pw, index // 2, index % 2)
+        t3_layout.addLayout(metrics_grid)
+
+        self._metrics_table_label = QLabel("Per-split validation metrics")
+        self._metrics_table_label.setStyleSheet("font-weight:600; color:#0f172a;")
+        t3_layout.addWidget(self._metrics_table_label)
+
+        self._metrics_table = QTableWidget()
+        self._metrics_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._metrics_table.setAlternatingRowColors(True)
+        self._metrics_table.setSelectionMode(QAbstractItemView.NoSelection)
+        self._metrics_table.horizontalHeader().setStretchLastSection(True)
+        t3_layout.addWidget(self._metrics_table, 1)
         self._tabs.addTab(self._tab_metrics, "Metrics")
 
         # Tab 5: Outliers
@@ -1152,14 +1190,16 @@ class OWQSARValidationDashboard(OWWidget):
             self._tabs.setTabText(selected_tab_index, f"Selected ({len(df)})")
 
     def _update_metrics(self, metrics_df: pd.DataFrame):
-        for pw in (self._pw_r2, self._pw_rmse, self._pw_mae):
+        for pw in self._metric_plot_widgets.values():
             pw.clear()
+        self._metrics_table.clearContents()
+        self._metrics_table.setRowCount(0)
+        self._metrics_table.setColumnCount(0)
 
         if metrics_df is None or metrics_df.empty:
             return
 
-        # Expected columns: group, n, r2, rmse, mae
-        required = {"group", "r2", "rmse", "mae"}
+        required = {"group"}
         if not required.issubset(set(metrics_df.columns)):
             return
 
@@ -1168,13 +1208,13 @@ class OWQSARValidationDashboard(OWWidget):
 
         colors = [(37, 99, 235, 210), (234, 88, 12, 210)]
 
-        for pw, metric_col, _metric_label in (
-            (self._pw_r2, "r2", "R\u00b2"),
-            (self._pw_rmse, "rmse", "RMSE"),
-            (self._pw_mae, "mae", "MAE"),
-        ):
+        for metric_col, pw in self._metric_plot_widgets.items():
+            if metric_col not in metrics_df.columns:
+                continue
             for i, (_grp, row) in enumerate(metrics_df.iterrows()):
-                val = float(row[metric_col]) if not pd.isna(row[metric_col]) else 0.0
+                if pd.isna(row[metric_col]):
+                    continue
+                val = float(row[metric_col])
                 color = colors[i % len(colors)]
                 bar = pg.BarGraphItem(
                     x=[x_positions[i]],
@@ -1196,6 +1236,49 @@ class OWQSARValidationDashboard(OWWidget):
             ax = pw.getPlotItem().getAxis("bottom")
             ax.setTicks([list(zip(x_positions, [str(g) for g in groups]))])
 
+        available_columns = [
+            (column_name, header)
+            for column_name, header in _METRIC_TABLE_COLUMNS
+            if column_name in metrics_df.columns
+        ]
+        self._metrics_table.setColumnCount(len(available_columns))
+        self._metrics_table.setHorizontalHeaderLabels([header for _, header in available_columns])
+        self._metrics_table.setRowCount(len(metrics_df))
+        for row_idx, (_, row) in enumerate(metrics_df.iterrows()):
+            for col_idx, (column_name, _header) in enumerate(available_columns):
+                value = row[column_name]
+                if pd.isna(value):
+                    text = ""
+                elif isinstance(value, (int, np.integer)):
+                    text = str(int(value))
+                elif isinstance(value, (float, np.floating)):
+                    text = f"{float(value):.4f}"
+                else:
+                    text = str(value)
+                item = QTableWidgetItem(text)
+                item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                self._metrics_table.setItem(row_idx, col_idx, item)
+        self._metrics_table.resizeColumnsToContents()
+
+    def _resolved_outlier_id_column(self, outliers_df: pd.DataFrame) -> str | None:
+        available = {str(column) for column in outliers_df.columns}
+        summary = self._summary_result.summary if self._summary_result is not None else {}
+
+        resolved = summary.get("id_column_used")
+        if resolved in available:
+            return str(resolved)
+        if "compound_id" in available:
+            return "compound_id"
+
+        requested = self.id_column.strip()
+        if requested in available:
+            return requested
+
+        for candidate in ("name", "molecule_id", "mol_id", "id"):
+            if candidate in available:
+                return candidate
+        return None
+
     def _update_outliers(self, outliers_df: pd.DataFrame):
         tbl = self._outliers_table
         self._syncing_outliers_table = True
@@ -1209,8 +1292,14 @@ class OWQSARValidationDashboard(OWWidget):
             self._syncing_outliers_table = False
             return
 
+        work_df = outliers_df.copy()
+        if "abs_residual" in work_df.columns:
+            work_df = work_df.sort_values("abs_residual", ascending=False)
+        self._outliers_df = work_df
+
+        id_column = self._resolved_outlier_id_column(work_df)
         col_map = {
-            0: self.id_column.strip() or "compound_id",
+            0: id_column,
             1: "observed",
             2: "predicted",
             3: "residual",
@@ -1219,11 +1308,6 @@ class OWQSARValidationDashboard(OWWidget):
             6: "validation_flag",
             7: "review_reason",
         }
-
-        work_df = outliers_df.copy()
-        if "abs_residual" in work_df.columns:
-            work_df = work_df.sort_values("abs_residual", ascending=False)
-        self._outliers_df = work_df
 
         # Fall back gracefully for missing columns
         available = set(work_df.columns)
