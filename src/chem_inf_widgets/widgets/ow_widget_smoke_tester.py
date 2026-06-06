@@ -38,7 +38,7 @@ from chem_inf_widgets.widgets.ow_molecule_import_hub import OWMoleculeImportHub
 from chem_inf_widgets.widgets.ow_molecule_qc_dashboard import OWMoleculeQCDashboard
 from chem_inf_widgets.widgets.ow_qsar_dataset_builder import OWQSARDatasetBuilder, _table_from_records, _table_to_records
 
-from . import _CATEGORY_SPECS
+from . import FULL_CATEGORY_SPECS
 
 
 @dataclass(frozen=True)
@@ -103,7 +103,8 @@ _CHEMBL_RETRIEVER_ROWS = [
 def discover_widget_smoke_targets(scope: str = "all") -> list[WidgetSmokeTarget]:
     normalized = str(scope or "all").strip().lower()
     targets: list[WidgetSmokeTarget] = []
-    for spec in _CATEGORY_SPECS:
+    # Contributor diagnostics should still cover the hidden full palette.
+    for spec in FULL_CATEGORY_SPECS:
         category_name = str(spec["name"])
         category_key = category_name.lower()
         for module_name in spec["modules"]:

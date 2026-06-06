@@ -1,8 +1,9 @@
 # Widget catalog and release layout
 
-This document describes the curated widget palette introduced in version `0.2.0`.
-The goal is to make the add-on easier to understand for new users while keeping
-specialized and experimental widgets available for developers and advanced users.
+This document describes the light-by-default widget palette introduced in
+version `0.3.0`. The goal is to make the add-on easier to understand for new
+users while keeping specialized and experimental widgets available for
+developers and advanced users through `OWCHEMINF_PALETTE=full`.
 
 ## Cheminf - Core
 
@@ -17,10 +18,8 @@ Entry-point widgets for most workflows:
 - Molecule QC Dashboard
 - Mol Standardizer
 - Mol Editor
-- Mol Ketcher
 - Compound Detail Card
 - Molecular Viewer
-- 3D Molecular Viewer
 
 ## Cheminf - Search & Analysis
 
@@ -72,6 +71,8 @@ Reaction-specific workflows:
 Widgets kept available but moved out of the main palette because they are
 experimental, diagnostic, overlapping, specialized, or optional-dependency-heavy:
 
+- Mol Ketcher
+- 3D Molecular Viewer
 - Widget Smoke Tester
 - Audit Trail Viewer
 - PharmaFP Search

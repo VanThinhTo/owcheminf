@@ -1,26 +1,28 @@
 """Orange widget discovery for the Chemoinformatics add-on.
 
-The public Orange sidebar is intentionally curated so the add-on feels like a
-coherent chemoinformatics toolbox rather than a long list of prototype widgets.
-Less mature, diagnostic, or highly specialised tools remain available under the
-``Cheminf - Development`` category instead of being removed from the code base.
+The default Orange sidebar exposes a light palette with the most stable and
+widely used widgets. Overlapping, optional-dependency-heavy, diagnostic, or
+experimental tools remain available in the code base and can be re-enabled
+with ``OWCHEMINF_PALETTE=full`` before launching Orange.
 """
 
 from __future__ import annotations
 
 import inspect
+import os
 from importlib import import_module
 
 from orangecanvas.registry import CategoryDescription, WidgetDescription
 from orangewidget.workflow.discovery import widget_desc_from_module
 
 PACKAGE_NAME = __name__
+PALETTE_ENV_VAR = "OWCHEMINF_PALETTE"
 
 NAME = "Chemoinformatics"
 DESCRIPTION = "Chemoinformatics widgets for Orange Data Mining."
 PRIORITY = 1
 
-# Curated categories for the v0.2.0 GitHub-ready layout.
+# Curated categories for the v0.3.0 light-by-default layout.
 #
 # Design rule:
 # - Core: robust entry-point widgets used in most workflows.
@@ -30,8 +32,9 @@ PRIORITY = 1
 #   kept in Development until they are merged or retired.
 # - Reactions: reaction-specific widgets.
 # - Development: useful but experimental, diagnostic, optional-dependency-heavy,
-#   or overlapping widgets that should not clutter the main user-facing palette.
-_CATEGORY_SPECS = (
+#   unstable-on-some-systems, or overlapping widgets that should not clutter
+#   the main user-facing palette.
+_LIGHT_CATEGORY_SPECS = (
     {
         "name": "Cheminf - Core",
         "description": "Import, clean, standardize, inspect, and visualize molecular datasets.",
@@ -48,10 +51,8 @@ _CATEGORY_SPECS = (
             "ow_molecule_qc_dashboard",
             "ow_mol_standardizer",
             "ow_mol_editor",
-            "ow_mol_ketcher_editor",
             "ow_compound_detail_card",
             "ow_mol_viewer",
-            "ow_mol3d_viewer",
         ),
     },
     {
@@ -115,13 +116,18 @@ _CATEGORY_SPECS = (
             "ow_reaction_enumerator",
         ),
     },
+)
+
+_DEVELOPMENT_CATEGORY_SPECS = (
     {
         "name": "Cheminf - Development",
-        "description": "Experimental, diagnostic, optional-dependency-heavy, and legacy widgets.",
+        "description": "Experimental, duplicate, optional-dependency-heavy, unstable, and legacy widgets.",
         "icon": "icons/categories/cheminf_modeling.svg",
         "background": "#F8FAFC",
         "priority": 1999,
         "modules": (
+            "ow_mol_ketcher_editor",
+            "ow_mol3d_viewer",
             "ow_widget_smoke_tester",
             "ow_audit_trail_viewer",
             "ow_pharmafp_search",
@@ -140,6 +146,28 @@ _CATEGORY_SPECS = (
         ),
     },
 )
+
+LIGHT_CATEGORY_SPECS = _LIGHT_CATEGORY_SPECS
+FULL_CATEGORY_SPECS = _LIGHT_CATEGORY_SPECS + _DEVELOPMENT_CATEGORY_SPECS
+
+# Backward-compatible alias for the default user-facing palette.
+_CATEGORY_SPECS = LIGHT_CATEGORY_SPECS
+
+
+def _normalize_palette_name(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"full", "all", "dev", "development", "labs"}:
+        return "full"
+    return "light"
+
+
+def get_category_specs(palette: str | None = None):
+    palette_name = _normalize_palette_name(
+        os.environ.get(PALETTE_ENV_VAR, "light") if palette is None else palette
+    )
+    if palette_name == "full":
+        return FULL_CATEGORY_SPECS
+    return LIGHT_CATEGORY_SPECS
 
 
 def _category_description(spec: dict[str, object]) -> CategoryDescription:
@@ -196,7 +224,7 @@ def widget_discovery(discovery) -> None:
 
     apply_theme()
 
-    for spec in _CATEGORY_SPECS:
+    for spec in get_category_specs():
         discovery.handle_category(_category_description(spec))
         for desc in _iter_widget_descriptions(spec):
             discovery.handle_widget(desc)

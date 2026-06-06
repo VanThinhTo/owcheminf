@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+from unittest.mock import patch
+
 import pytest
 
 pytest.importorskip("Orange")
@@ -54,13 +57,43 @@ def test_widget_package_discovery_registers_without_duplicate_widgets():
     widget_package.widget_discovery(discovery)
 
     assert registry.has_widget(
-        "chem_inf_widgets.widgets.ow_widget_smoke_tester.OWWidgetSmokeTester"
-    )
-    assert registry.has_widget(
         "chem_inf_widgets.widgets.ow_mol_standardizer.OWMolStandardizer"
     )
     assert registry.has_widget(
+        "chem_inf_widgets.widgets.ow_mol_editor.OWMolSketcher"
+    )
+    assert not registry.has_widget(
+        "chem_inf_widgets.widgets.ow_widget_smoke_tester.OWWidgetSmokeTester"
+    )
+    assert not registry.has_widget(
         "chem_inf_widgets.widgets.ow_symbolic_regression.OWSymbolicRegression"
+    )
+    assert not registry.has_widget(
+        "chem_inf_widgets.widgets.ow_mol_ketcher_editor.OWMolKetcher"
+    )
+    assert not registry.has_widget(
+        "chem_inf_widgets.widgets.ow_mol3d_viewer.OWMol3DViewer"
+    )
+
+
+def test_widget_package_discovery_registers_full_palette_when_requested():
+    registry = WidgetRegistry()
+    discovery = WidgetDiscovery(registry)
+
+    with patch.dict(os.environ, {widget_package.PALETTE_ENV_VAR: "full"}):
+        widget_package.widget_discovery(discovery)
+
+    assert registry.has_widget(
+        "chem_inf_widgets.widgets.ow_widget_smoke_tester.OWWidgetSmokeTester"
+    )
+    assert registry.has_widget(
+        "chem_inf_widgets.widgets.ow_symbolic_regression.OWSymbolicRegression"
+    )
+    assert registry.has_widget(
+        "chem_inf_widgets.widgets.ow_mol_ketcher_editor.OWMolKetcher"
+    )
+    assert registry.has_widget(
+        "chem_inf_widgets.widgets.ow_mol3d_viewer.OWMol3DViewer"
     )
 
 

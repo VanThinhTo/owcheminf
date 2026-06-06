@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.3.0] - 2026-06-06
+
+### Changed
+- Switched Orange widget discovery to a light-by-default palette so new installs expose only the most stable and broadly useful widgets.
+- Moved duplicate, optional-dependency-heavy, diagnostic, and higher-risk widgets behind an opt-in full palette controlled with `OWCHEMINF_PALETTE=full`.
+- Removed direct default registration of `Mol Ketcher`, `3D Molecular Viewer`, and the broader development palette while keeping those widgets available for advanced users and contributors.
+- Updated packaging and widget-discovery tests to cover both the default light palette and the opt-in full palette.
+
 ## [0.2.8] - 2026-06-01
 
 ### Changed

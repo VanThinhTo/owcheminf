@@ -7,6 +7,10 @@
 
 `chem-inf-widgets` is an Orange3 chemoinformatics add-on built around `RDKit`, `Orange`, `ChEMBL`, descriptor generation, QSAR analysis, scaffold analytics, similarity search and reaction workflows.
 
+From `0.3.0`, the default Orange install uses a light widget palette. To
+expose the full development/experimental palette as well, launch Orange with
+`OWCHEMINF_PALETTE=full`.
+
 ## Start Here
 
 - main package README: [src/chem_inf_widgets/README.md](src/chem_inf_widgets/README.md)
@@ -44,6 +48,10 @@ conda env create -f environment.yml
 conda activate owcheminf
 pip install -e .
 orange-canvas
+```
+
+```bash
+OWCHEMINF_PALETTE=full orange-canvas
 ```
 
 For a fuller local developer setup with optional tooling already present:

@@ -14,6 +14,13 @@ Useful check:
 python -c "import chem_inf_widgets; print(chem_inf_widgets.__file__)"
 ```
 
+If the missing widget is experimental, duplicated, or optional, it may now live
+in the full palette only. Try launching Orange with:
+
+```bash
+OWCHEMINF_PALETTE=full orange-canvas
+```
+
 ## Ketcher or WebEngine widgets crash on macOS
 
 `Qt WebEngine` can be sensitive on macOS, especially inside Conda environments.

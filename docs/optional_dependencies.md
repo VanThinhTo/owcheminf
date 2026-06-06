@@ -2,6 +2,10 @@
 
 This project now supports a lean install path and a richer optional-feature path.
 
+From `0.3.0`, the lean install also maps to the default Orange palette: only
+the stable light widget set is registered automatically. Advanced and
+experimental widgets remain available with `OWCHEMINF_PALETTE=full orange-canvas`.
+
 Use this guide when you want to:
 
 - create a fresh runtime environment
@@ -22,6 +26,18 @@ If you want to run the pytest-based smoke checks from the lean environment, add:
 
 ```bash
 python -m pip install pytest
+```
+
+Launch Orange with the default light palette:
+
+```bash
+orange-canvas
+```
+
+If you explicitly want the hidden development palette too:
+
+```bash
+OWCHEMINF_PALETTE=full orange-canvas
 ```
 
 ## Developer install

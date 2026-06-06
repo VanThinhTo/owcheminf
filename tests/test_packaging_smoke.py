@@ -25,15 +25,31 @@ class PackagingSmokeTests(unittest.TestCase):
         self.assertEqual(widgets_pkg.NAME, "Chemoinformatics")
         self.assertTrue(bool(widgets_pkg.DESCRIPTION))
         self.assertTrue(hasattr(widgets_pkg, "_CATEGORY_SPECS"))
+        self.assertTrue(hasattr(widgets_pkg, "FULL_CATEGORY_SPECS"))
         self.assertTrue(len(widgets_pkg._CATEGORY_SPECS) >= 1)
         self.assertTrue(all(bool(spec["icon"]) for spec in widgets_pkg._CATEGORY_SPECS))
+
+    def test_light_palette_is_default_and_full_palette_remains_available(self):
+        import chem_inf_widgets.widgets as widgets_pkg
+
+        default_category_names = {spec["name"] for spec in widgets_pkg._CATEGORY_SPECS}
+        self.assertNotIn("Cheminf - Development", default_category_names)
+
+        dev_spec = next(
+            spec for spec in widgets_pkg.FULL_CATEGORY_SPECS
+            if spec["name"] == "Cheminf - Development"
+        )
+        dev_modules = set(dev_spec["modules"])
+        self.assertIn("ow_widget_smoke_tester", dev_modules)
+        self.assertIn("ow_mol_ketcher_editor", dev_modules)
+        self.assertIn("ow_mol3d_viewer", dev_modules)
 
     def test_widget_category_modules_are_unique_and_qsar_palette_is_complete(self):
         import chem_inf_widgets.widgets as widgets_pkg
 
         all_modules = [
             module_name
-            for spec in widgets_pkg._CATEGORY_SPECS
+            for spec in widgets_pkg.FULL_CATEGORY_SPECS
             for module_name in spec["modules"]
         ]
         self.assertEqual(len(all_modules), len(set(all_modules)))

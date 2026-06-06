@@ -38,33 +38,33 @@ class WheelInstallSmokeTests(unittest.TestCase):
             check_script = textwrap.dedent(
                 """
                 import json
-                from importlib import resources
+                from importlib.metadata import files
 
                 expected = {
                     "chem_inf_widgets.chemcore.data": [
-                        "smartspains.json",
-                        "pharmafp250.json",
-                        "cyclic_registry.json",
-                        "patterns.csv",
+                        "chem_inf_widgets/chemcore/data/smartspains.json",
+                        "chem_inf_widgets/chemcore/data/pharmafp250.json",
+                        "chem_inf_widgets/chemcore/data/cyclic_registry.json",
+                        "chem_inf_widgets/chemcore/data/patterns.csv",
                     ],
                     "chem_inf_widgets.widgets": [
-                        "icons/editors_viewers/owcompounddetailcardwidget.svg",
-                        "icons/standardization_filtering/owpharmafpsearchwidget.svg",
-                        "ketcher/standalone/indexqt.html",
-                        "ketcher/standalone/static/js/main.js",
+                        "chem_inf_widgets/widgets/icons/editors_viewers/owcompounddetailcardwidget.svg",
+                        "chem_inf_widgets/widgets/icons/standardization_filtering/owpharmafpsearchwidget.svg",
+                        "chem_inf_widgets/widgets/ketcher/standalone/indexqt.html",
+                        "chem_inf_widgets/widgets/ketcher/standalone/static/js/main.js",
                     ],
                     "chem_inf_widgets.chemcore": [
-                        "resources/padel_presets/all_2d_descriptors.xml",
-                        "resources/jsme/jsme_panel.html",
+                        "chem_inf_widgets/chemcore/resources/padel_presets/all_2d_descriptors.xml",
+                        "chem_inf_widgets/chemcore/resources/jsme/jsme_panel.html",
                     ],
                 }
 
+                installed = {str(path) for path in (files("chem-inf-widgets") or [])}
                 results = {}
-                for package, relpaths in expected.items():
-                    root = resources.files(package)
+                for package, package_paths in expected.items():
                     results[package] = {
-                        relpath: root.joinpath(relpath).is_file()
-                        for relpath in relpaths
+                        path: path in installed
+                        for path in package_paths
                     }
 
                 print(json.dumps(results))

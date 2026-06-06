@@ -8,6 +8,11 @@ The project is designed for three main use cases:
 - teaching workflows for medicinal chemistry and QSAR
 - reusable service-layer code for notebooks and future FAIRMol-style tools
 
+From version `0.3.0`, Orange registers a light widget palette by default so a
+fresh install stays focused on the stable, high-signal workflow surface. The
+full palette remains available for contributors and advanced users by launching
+Orange with `OWCHEMINF_PALETTE=full`.
+
 ## Highlights
 
 - Orange3 widget add-on with more than 30 chemoinformatics widgets
@@ -81,7 +86,15 @@ If you want to understand which widgets degrade gracefully when an extra is miss
 orange-canvas
 ```
 
+To expose the full experimental/development palette as well:
+
+```bash
+OWCHEMINF_PALETTE=full orange-canvas
+```
+
 ## Widget Overview
+
+The default install now shows the light palette below.
 
 ### Input / Output
 
@@ -93,27 +106,21 @@ orange-canvas
 ### Editors / Viewers
 
 - `Mol Editor`
-- `Mol Ketcher`
 - `Molecular Viewer`
-- `3D Molecular Viewer`
 - `Pair Viewer`
 - `Compound Detail Card`
 
 ### Standardization / Filtering / Search
 
-- `Audit Trail Viewer`
 - `Mol Standardizer`
 - `Drug Filter`
 - `Substructure Search`
 - `Similarity Search`
-- `PharmaFP Search`
 
 ### Descriptors / Fingerprints
 
 - `Fingerprint Generator`
 - `Mol Descriptor`
-- `PaDEL Descriptors`
-- `ISIDA Descriptors`
 
 ### Analysis
 
@@ -141,15 +148,36 @@ orange-canvas
 - `Model Explanation`
 - `QSAR Report Generator`
 - `QSAR Prediction Packager`
-- `QSAR Regression`
-- `MLR Model Selection`
-- `Symbolic Regression`
 
 ### Reactions
 
 - `RDKit Reactor`
 - `Reaction Enumerator`
 - `Reaction Viewer`
+
+## Full Palette Opt-In
+
+The following widgets remain shipped with the package but are no longer part of
+the default install palette because they are duplicate, optional, diagnostic,
+or less stable on some systems:
+
+- `Mol Ketcher`
+- `3D Molecular Viewer`
+- `Widget Smoke Tester`
+- `Audit Trail Viewer`
+- `PharmaFP Search`
+- `Cyclic Registry Fingerprint`
+- `ISIDA Descriptors`
+- `PaDEL Descriptors`
+- `Applicability Domain Workbench`
+- `Atom Contribution Map`
+- `QSAR Regression`
+- `MLR Model Selection`
+- `Dataset Profiler`
+- `Chemical Series Explorer`
+- `ADMET Radar`
+- `Molecular Space Map`
+- `Symbolic Regression`
 
 ## Teaching Material
 
