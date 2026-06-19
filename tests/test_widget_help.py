@@ -28,20 +28,24 @@ def test_all_default_palette_widgets_have_documentation_refs():
     assert set(widget_package.WIDGET_HELP_REFS) == default_modules
 
 
-def test_widget_descriptions_resolve_to_live_documentation_paths():
-    index_source = (PROJECT_ROOT / "docs" / "source" / "index.rst").read_text(
-        encoding="utf-8"
-    )
+def test_widget_descriptions_resolve_to_documentation_paths():
+    help_index = (
+        PROJECT_ROOT / "docs" / "source" / "widget-help.html"
+    ).read_text(encoding="utf-8")
 
     for spec in widget_package.LIGHT_CATEGORY_SPECS:
         for description in widget_package._iter_widget_descriptions(spec):
             assert description.project_name == widget_package.PROJECT_NAME
             assert description.help_ref
             assert description.name
-            assert (
-                f":doc:`{description.name} <{description.help_ref}>`"
-                in index_source
+            documentation_page = (
+                PROJECT_ROOT
+                / "docs"
+                / "source"
+                / f"{description.help_ref}.rst"
             )
+            assert documentation_page.is_file()
+            assert f'href="{description.help_ref}.html"' in help_index
 
 
 def test_project_registers_orange_html_help_provider():

@@ -87,7 +87,7 @@ all = [
 
 [project.urls]
 Homepage = "https://github.com/crtomirp/owcheminf"
-Documentation = "https://github.com/crtomirp/owcheminf"
+Documentation = "https://owcheminf.readthedocs.io/en/latest/"
 Source = "https://github.com/crtomirp/owcheminf"
 Issues = "https://github.com/crtomirp/owcheminf/issues"
 Changelog = "https://github.com/crtomirp/owcheminf/blob/main/CHANGELOG.md"
