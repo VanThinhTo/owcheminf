@@ -16,11 +16,58 @@ from orangecanvas.registry import CategoryDescription, WidgetDescription
 from orangewidget.workflow.discovery import widget_desc_from_module
 
 PACKAGE_NAME = __name__
+PROJECT_NAME = "chem-inf-widgets"
 PALETTE_ENV_VAR = "OWCHEMINF_PALETTE"
 
 NAME = "Chemoinformatics"
 DESCRIPTION = "Chemoinformatics widgets for Orange Data Mining."
 PRIORITY = 1
+
+DOCUMENTATION_ROOT = "https://owcheminf.readthedocs.io/en/latest/"
+WIDGET_HELP_PATH = (DOCUMENTATION_ROOT,)
+
+# Orange's context-menu Help action resolves a widget through its installed
+# distribution and then appends ``help_ref`` to WIDGET_HELP_PATH. Keep the
+# mapping centralized here because the curated categories intentionally assign
+# widgets dynamically instead of relying on one category per Python package.
+WIDGET_HELP_REFS = {
+    "ow_molecule_import_hub": "widgets/molecule-import-hub",
+    "ow_molecule_export_hub": "widgets/molecule-export-hub",
+    "ow_sdf_reader": "widgets/sdf-reader",
+    "ow_sdf_writer": "widgets/sdf-writer",
+    "ow_chembl_browser": "widgets/chembl-browser",
+    "ow_chembl_dataretriever": "widgets/chembl-bioactivity-retriever",
+    "ow_molecule_qc_dashboard": "widgets/molecule-qc-dashboard",
+    "ow_mol_standardizer": "widgets/mol-standardizer",
+    "ow_mol_editor": "widgets/mol-editor",
+    "ow_compound_detail_card": "widgets/compound-detail-card",
+    "ow_mol_viewer": "widgets/molecular-viewer",
+    "ow_substructure_search": "widgets/substructure-similarity-search",
+    "ow_similarity_search": "widgets/similarity-search",
+    "ow_fingerprint_generator": "widgets/fingerprint-generator",
+    "ow_rdkit_descriptors": "widgets/rdkit-descriptors",
+    "ow_mol_descriptor": "widgets/mol-descriptors-2",
+    "ow_scaffold_analysis": "widgets/scaffold-analysis",
+    "ow_scaffold_splitter": "widgets/scaffold-splitter",
+    "ow_diversity_picker": "widgets/diversity-picker",
+    "ow_activity_cliff_finder": "widgets/activity-cliff-finder",
+    "ow_rgroup_decomposition": "widgets/r-group-decomposition",
+    "ow_matched_molecular_pairs": "widgets/matched-molecular-pairs",
+    "ow_pair_viewer": "widgets/pair-viewer",
+    "ow_drug_filter": "widgets/drug-filter",
+    "ow_qsar_dataset_builder": "widgets/qsar-dataset-builder",
+    "ow_descriptor_explorer": "widgets/qsar-descriptor-explorer",
+    "ow_descriptor_filter": "widgets/descriptor-pre-selector",
+    "ow_qsar_model_hub": "widgets/qsar-model-hub",
+    "ow_qsar_validation_dashboard": "widgets/qsar-validation-dashboard",
+    "ow_applicability_domain": "widgets/applicability-domain",
+    "ow_model_explanation": "widgets/model-explanation",
+    "ow_qsar_report_generator": "widgets/qsar-report-generator",
+    "ow_qsar_prediction_packager": "widgets/qsar-prediction-packager",
+    "ow_reactionviewer": "widgets/reaction-viewer",
+    "ow_reactor": "widgets/rdkit-reactor",
+    "ow_reaction_enumerator": "widgets/reaction-enumerator",
+}
 
 # Curated categories for the v0.3.0 light-by-default layout.
 #
@@ -188,6 +235,8 @@ def _iter_widget_descriptions(spec: dict[str, object]):
         module = import_module(f"{PACKAGE_NAME}.{module_name}")
         desc = _widget_desc_from_local_module(module)
         desc.category = category_name
+        desc.project_name = PROJECT_NAME
+        desc.help_ref = WIDGET_HELP_REFS.get(module_name)
         yield desc
 
 
