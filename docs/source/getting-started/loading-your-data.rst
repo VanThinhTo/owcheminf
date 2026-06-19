@@ -1,7 +1,7 @@
 Loading your Data
 =================
 
-OWChemInf accepts molecular data as Orange tables and as ``ChemMol`` object
+Orange Cheminf accepts molecular data as Orange tables and as ``ChemMol`` object
 collections. Most table-based widgets detect a text field named ``SMILES`` or
 ``canonical_smiles`` automatically.
 
@@ -27,4 +27,3 @@ Recommended first workflow
 Check the import and QC reports before modeling. Invalid structures, duplicate
 identities, mixtures, salts, activity units, and endpoint definitions can all
 change downstream conclusions.
-

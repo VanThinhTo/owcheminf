@@ -1,9 +1,9 @@
-OWChemInf Documentation
-=======================
+Orange Documentation
+====================
 
-OWChemInf is an Orange Data Mining add-on for visual chemoinformatics,
-molecular data curation, search and analysis, QSAR/QSPR modeling, and reaction
-workflows.
+This site combines the standard Orange Visual Programming documentation with
+the Cheminf add-on documentation. Every widget Help action can therefore open
+a page under the same ``owcheminf.readthedocs.io`` domain.
 
 Getting Started
 ---------------
@@ -17,8 +17,19 @@ Start with these short guides:
 * :doc:`Learners as Scorers <getting-started/learners-as-scorers>`
 * :doc:`Report <getting-started/report>`
 
-Widgets
--------
+Standard Orange Widgets
+-----------------------
+
+The complete official Orange widget guide is mirrored here:
+
+* :doc:`Orange Visual Programming <orange/source/index>`
+* `Official documentation source <https://github.com/biolab/orange3-doc-visual-programming>`_
+
+It includes the Data, Transform, Visualize, Model, Evaluate, and Unsupervised
+widgets distributed with Orange 3.
+
+Cheminf Widgets
+---------------
 
 Cheminf - Core
 ~~~~~~~~~~~~~~
@@ -81,9 +92,10 @@ Cheminf - Reactions
    :hidden:
 
    getting-started/index
+   orange/source/index
+   orange/source/widgets/data/split
    widgets/core
    widgets/search-analysis
    widgets/filters-alerts
    widgets/qsar
    widgets/reactions
-

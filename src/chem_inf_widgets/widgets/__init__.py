@@ -73,6 +73,24 @@ WIDGET_HELP_REFS = {
     "ow_reaction_enumerator": "widgets/reaction-enumerator",
 }
 
+
+def install_combined_orange_help() -> None:
+    """Route Orange's built-in widget Help action through this documentation.
+
+    Orange resolves help providers lazily from ``Orange.widgets.WIDGET_HELP_PATH``.
+    Replacing that value during add-on discovery keeps the standard Orange
+    widgets and the Cheminf widgets on the same deployed documentation domain.
+    """
+    try:
+        import Orange.widgets as orange_widgets
+        from orangecanvas.help import manager as help_manager
+    except ImportError:
+        return
+
+    orange_widgets.WIDGET_HELP_PATH = WIDGET_HELP_PATH
+    help_manager._providers_cache.pop("Orange3", None)
+
+
 # Curated categories for the v0.3.0 light-by-default layout.
 #
 # Design rule:
@@ -275,6 +293,7 @@ def widget_discovery(discovery) -> None:
     """Register the curated Orange categories for this add-on."""
     from chem_inf_widgets.widgets.theme import apply_theme
 
+    install_combined_orange_help()
     apply_theme()
 
     for spec in get_category_specs():

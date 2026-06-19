@@ -9,6 +9,8 @@ pytest.importorskip("Orange")
 
 from AnyQt.QtCore import QUrl
 from orangecanvas.help.provider import HtmlIndexProvider
+from orangecanvas.registry import WidgetRegistry
+from orangewidget.workflow.discovery import WidgetDiscovery
 
 import chem_inf_widgets.widgets as widget_package
 
@@ -65,3 +67,39 @@ def test_help_provider_indexes_widget_links_from_machine_readable_index():
         for description in widget_package._iter_widget_descriptions(spec):
             url = provider.search(description)
             assert url.path().endswith(f"/{description.help_ref}.html")
+
+
+def test_combined_help_index_resolves_standard_orange_widgets():
+    import Orange.widgets
+
+    local_index = PROJECT_ROOT / "docs" / "source" / "widget-help.html"
+    provider = HtmlIndexProvider(
+        inventory=QUrl.fromLocalFile(str(local_index)),
+        xpathquery=widget_package.WIDGET_HELP_INDEX_XPATH,
+    )
+    registry = WidgetRegistry()
+    Orange.widgets.widget_discovery(WidgetDiscovery(registry))
+
+    active_widgets = [
+        description
+        for description in registry.widgets()
+        if description.category != "Orange Obsolete"
+    ]
+    resolved = [provider.search(description) for description in active_widgets]
+
+    assert len(active_widgets) == 104
+    assert len(resolved) == 104
+    assert all("/orange/source/widgets/" in url.path() for url in resolved)
+
+
+def test_cheminf_discovery_overrides_orange_help_path():
+    import Orange.widgets
+
+    original = Orange.widgets.WIDGET_HELP_PATH
+    try:
+        Orange.widgets.WIDGET_HELP_PATH = ()
+        registry = WidgetRegistry()
+        widget_package.widget_discovery(WidgetDiscovery(registry))
+        assert Orange.widgets.WIDGET_HELP_PATH == widget_package.WIDGET_HELP_PATH
+    finally:
+        Orange.widgets.WIDGET_HELP_PATH = original

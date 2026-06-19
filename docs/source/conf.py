@@ -13,25 +13,34 @@ sys.path.insert(0, str(Path(__file__).parent))
 from widget_catalog import CATEGORIES, WIDGETS, WIDGETS_BY_SLUG
 
 
-project = "OWChemInf"
-author = "OWChemInf contributors"
-copyright = "2026, OWChemInf contributors"
+project = "Orange"
+author = "Orange Data Mining and Cheminf contributors"
+copyright = "2015–2026, Orange Data Mining and Cheminf contributors"
 release = "0.3.0"
 
-extensions = []
+extensions = ["myst_parser"]
+myst_enable_extensions = [
+    "attrs_inline",
+    "colon_fence",
+    "html_image",
+]
+suppress_warnings = ["myst.header", "myst.xref_missing"]
 templates_path = ["_templates"]
 exclude_patterns = []
-source_suffix = ".rst"
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "markdown",
+}
 master_doc = "index"
 
 html_theme = "alabaster"
 html_static_path = ["_static"]
 html_extra_path = ["widget-help.html"]
 html_css_files = ["owcheminf.css"]
-html_title = "OWChemInf Documentation"
-html_short_title = "OWChemInf"
+html_title = "Orange Documentation"
+html_short_title = "Orange"
 html_theme_options = {
-    "description": "Chemoinformatics widgets for Orange Data Mining",
+    "description": "Orange visual programming and Cheminf widget documentation",
     "github_user": "VanThinhTo",
     "github_repo": "owcheminf",
     "github_button": True,
