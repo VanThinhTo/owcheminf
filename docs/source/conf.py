@@ -26,6 +26,7 @@ master_doc = "index"
 
 html_theme = "alabaster"
 html_static_path = ["_static"]
+html_extra_path = ["widget-help.html"]
 html_css_files = ["owcheminf.css"]
 html_title = "OWChemInf Documentation"
 html_short_title = "OWChemInf"

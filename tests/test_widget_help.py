@@ -8,7 +8,7 @@ import pytest
 pytest.importorskip("Orange")
 
 from AnyQt.QtCore import QUrl
-from orangecanvas.help.provider import SimpleHelpProvider
+from orangecanvas.help.provider import HtmlIndexProvider
 
 import chem_inf_widgets.widgets as widget_package
 
@@ -27,14 +27,18 @@ def test_all_default_palette_widgets_have_documentation_refs():
 
 
 def test_widget_descriptions_resolve_to_live_documentation_paths():
-    provider = SimpleHelpProvider(baseurl=QUrl(widget_package.DOCUMENTATION_ROOT))
+    index_source = (PROJECT_ROOT / "docs" / "source" / "index.rst").read_text(
+        encoding="utf-8"
+    )
 
     for spec in widget_package.LIGHT_CATEGORY_SPECS:
         for description in widget_package._iter_widget_descriptions(spec):
             assert description.project_name == widget_package.PROJECT_NAME
             assert description.help_ref
-            assert provider.search(description).toString() == (
-                f"{widget_package.DOCUMENTATION_ROOT}{description.help_ref}.html"
+            assert description.name
+            assert (
+                f":doc:`{description.name} <{description.help_ref}>`"
+                in index_source
             )
 
 
@@ -42,5 +46,22 @@ def test_project_registers_orange_html_help_provider():
     metadata = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
     assert metadata["project"]["entry-points"]["orange.canvas.help"] == {
-        "html-simple": "chem_inf_widgets.widgets:WIDGET_HELP_PATH"
+        "html-index": "chem_inf_widgets.widgets:WIDGET_HELP_PATH"
     }
+
+
+def test_help_provider_indexes_widget_links_from_machine_readable_index():
+    target, xpath = widget_package.WIDGET_HELP_PATH[0]
+
+    assert target == f"{widget_package.DOCUMENTATION_ROOT}widget-help.html"
+    assert xpath == ".//*[@id='widgets']//li/a"
+
+    local_index = PROJECT_ROOT / "docs" / "source" / "widget-help.html"
+    provider = HtmlIndexProvider(
+        inventory=QUrl.fromLocalFile(str(local_index)),
+        xpathquery=xpath,
+    )
+    for spec in widget_package.LIGHT_CATEGORY_SPECS:
+        for description in widget_package._iter_widget_descriptions(spec):
+            url = provider.search(description)
+            assert url.path().endswith(f"/{description.help_ref}.html")

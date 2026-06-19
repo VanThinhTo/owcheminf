@@ -110,7 +110,7 @@ owcheminf-clean-repo = "chem_inf_widgets.chemcore.tools.clean_repo_cli:main"
 Chemoinformatics = "chem_inf_widgets.widgets"
 
 [project.entry-points."orange.canvas.help"]
-html-simple = "chem_inf_widgets.widgets:WIDGET_HELP_PATH"
+html-index = "chem_inf_widgets.widgets:WIDGET_HELP_PATH"
 
 # src-layout konfiguracija
 [tool.setuptools]

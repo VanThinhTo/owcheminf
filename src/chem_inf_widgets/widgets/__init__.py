@@ -24,12 +24,16 @@ DESCRIPTION = "Chemoinformatics widgets for Orange Data Mining."
 PRIORITY = 1
 
 DOCUMENTATION_ROOT = "https://owcheminf.readthedocs.io/en/latest/"
-WIDGET_HELP_PATH = (DOCUMENTATION_ROOT,)
+WIDGET_HELP_INDEX_XPATH = ".//*[@id='widgets']//li/a"
+WIDGET_HELP_PATH = (
+    (f"{DOCUMENTATION_ROOT}widget-help.html", WIDGET_HELP_INDEX_XPATH),
+)
 
 # Orange's context-menu Help action resolves a widget through its installed
-# distribution and then appends ``help_ref`` to WIDGET_HELP_PATH. Keep the
-# mapping centralized here because the curated categories intentionally assign
-# widgets dynamically instead of relying on one category per Python package.
+# distribution. The HTML-index provider matches each widget name against the
+# links under the documentation index's ``Widgets`` section. Keep help_ref as
+# explicit metadata as well so the intended page remains testable and can be
+# reused by other Orange help providers.
 WIDGET_HELP_REFS = {
     "ow_molecule_import_hub": "widgets/molecule-import-hub",
     "ow_molecule_export_hub": "widgets/molecule-export-hub",
