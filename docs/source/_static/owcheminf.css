@@ -115,6 +115,46 @@ a:hover {
   margin-bottom: 0.35rem;
 }
 
+.orange-doc-navigation ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.orange-doc-navigation li {
+  margin: 0;
+  padding: 0;
+}
+
+.orange-doc-navigation a,
+.orange-doc-navigation .navigation-section > span {
+  border-left: 3px solid transparent;
+  display: block;
+  padding: 0.34rem 0.55rem;
+  text-decoration: none;
+}
+
+.orange-doc-navigation .navigation-section > span {
+  color: #3f4650;
+  font-weight: 700;
+  margin-top: 0.35rem;
+}
+
+.orange-doc-navigation .navigation-section ul a {
+  padding-left: 1.15rem;
+}
+
+.orange-doc-navigation a:hover {
+  background: #f2f5f7;
+}
+
+.orange-doc-navigation li.current > a {
+  background: #eaf3f7;
+  border-left-color: #0087ad;
+  color: #00597a;
+  font-weight: 700;
+}
+
 @media (max-width: 700px) {
   .widget-lead {
     align-items: flex-start;

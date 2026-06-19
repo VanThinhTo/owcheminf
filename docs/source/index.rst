@@ -3,7 +3,7 @@ Orange Documentation
 
 This site combines the standard Orange Visual Programming documentation with
 the Cheminf add-on documentation. Every widget Help action can therefore open
-a page under the same ``owcheminf.readthedocs.io`` domain.
+a page on the same deployed documentation site.
 
 Getting Started
 ---------------
@@ -92,6 +92,12 @@ Cheminf - Reactions
    :hidden:
 
    getting-started/index
+   standard-widgets/data
+   standard-widgets/transform
+   standard-widgets/visualize
+   standard-widgets/model
+   standard-widgets/evaluate
+   standard-widgets/unsupervised
    orange/source/index
    orange/source/widgets/data/split
    widgets/core

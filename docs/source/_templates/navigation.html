@@ -1,0 +1,47 @@
+<h3>{{ _('Navigation') }}</h3>
+<nav class="orange-doc-navigation" aria-label="Documentation navigation">
+  <ul>
+    <li class="{% if pagename.startswith('getting-started/') %}current{% endif %}">
+      <a href="{{ pathto('getting-started/index') }}">Getting Started</a>
+    </li>
+    <li class="navigation-section">
+      <span>Widgets</span>
+      <ul>
+        <li class="{% if pagename == 'standard-widgets/data' %}current{% endif %}">
+          <a href="{{ pathto('standard-widgets/data') }}">Data</a>
+        </li>
+        <li class="{% if pagename == 'standard-widgets/transform' %}current{% endif %}">
+          <a href="{{ pathto('standard-widgets/transform') }}">Transform</a>
+        </li>
+        <li class="{% if pagename == 'standard-widgets/visualize' %}current{% endif %}">
+          <a href="{{ pathto('standard-widgets/visualize') }}">Visualize</a>
+        </li>
+        <li class="{% if pagename == 'standard-widgets/model' %}current{% endif %}">
+          <a href="{{ pathto('standard-widgets/model') }}">Model</a>
+        </li>
+        <li class="{% if pagename == 'standard-widgets/evaluate' %}current{% endif %}">
+          <a href="{{ pathto('standard-widgets/evaluate') }}">Evaluate</a>
+        </li>
+        <li class="{% if pagename == 'standard-widgets/unsupervised' %}current{% endif %}">
+          <a href="{{ pathto('standard-widgets/unsupervised') }}">Unsupervised</a>
+        </li>
+        <li class="{% if pagename.startswith('widgets/core') or pagename in ['widgets/molecule-import-hub', 'widgets/molecule-export-hub', 'widgets/sdf-reader', 'widgets/sdf-writer', 'widgets/chembl-bioactivity-retriever', 'widgets/chembl-browser', 'widgets/molecule-qc-dashboard', 'widgets/molecular-viewer', 'widgets/mol-editor', 'widgets/mol-standardizer', 'widgets/compound-detail-card'] %}current{% endif %}">
+          <a href="{{ pathto('widgets/core') }}">Cheminf - Core</a>
+        </li>
+        <li class="{% if pagename.startswith('widgets/search-analysis') %}current{% endif %}">
+          <a href="{{ pathto('widgets/search-analysis') }}">Cheminf - Search Analysis</a>
+        </li>
+        <li class="{% if pagename.startswith('widgets/filters-alerts') or pagename == 'widgets/drug-filter' %}current{% endif %}">
+          <a href="{{ pathto('widgets/filters-alerts') }}">Cheminf - Filters Alerts</a>
+        </li>
+        <li class="{% if pagename.startswith('widgets/qsar') or pagename in ['widgets/descriptor-pre-selector', 'widgets/applicability-domain', 'widgets/model-explanation'] %}current{% endif %}">
+          <a href="{{ pathto('widgets/qsar') }}">Cheminf - QSAR</a>
+        </li>
+        <li class="{% if pagename.startswith('widgets/reaction') or pagename in ['widgets/reactions', 'widgets/rdkit-reactor'] %}current{% endif %}">
+          <a href="{{ pathto('widgets/reactions') }}">Cheminf - Reactions</a>
+        </li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+
